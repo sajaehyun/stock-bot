@@ -1,7 +1,17 @@
 name: Daily Stock Analysis
 on:
   schedule:
-    - cron: '1 10 * * *'
+    - cron: '0 4 * * *'   # 오후 1시 KST
+    - cron: '0 5 * * *'   # 오후 2시 KST
+    - cron: '0 6 * * *'   # 오후 3시 KST
+    - cron: '0 7 * * *'   # 오후 4시 KST
+    - cron: '0 8 * * *'   # 오후 5시 KST
+    - cron: '0 9 * * *'   # 오후 6시 KST
+    - cron: '0 10 * * *'  # 오후 7시 KST
+    - cron: '0 11 * * *'  # 오후 8시 KST
+    - cron: '0 12 * * *'  # 오후 9시 KST
+    - cron: '0 13 * * *'  # 오후 10시 KST
+    - cron: '0 14 * * *'  # 오후 11시 KST
   workflow_dispatch:
 jobs:
   run:
