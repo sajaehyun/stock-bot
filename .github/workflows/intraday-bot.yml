@@ -1,0 +1,37 @@
+name: Intraday 30min Analysis
+on:
+  schedule:
+    # 30분마다 (오후 1시~11시)
+    - cron: '0 4 * * *'   # 1시 00분
+    - cron: '30 4 * * *'  # 1시 30분
+    - cron: '0 5 * * *'   # 2시 00분
+    - cron: '30 5 * * *'  # 2시 30분
+    - cron: '0 6 * * *'   # 3시 00분
+    - cron: '30 6 * * *'  # 3시 30분
+    - cron: '0 7 * * *'   # 4시 00분
+    - cron: '30 7 * * *'  # 4시 30분
+    - cron: '0 8 * * *'   # 5시 00분
+    - cron: '30 8 * * *'  # 5시 30분
+    - cron: '0 9 * * *'   # 6시 00분
+    - cron: '30 9 * * *'  # 6시 30분
+    - cron: '0 10 * * *'  # 7시 00분
+    - cron: '30 10 * * *' # 7시 30분
+    - cron: '0 11 * * *'  # 8시 00분
+    - cron: '30 11 * * *' # 8시 30분
+    - cron: '0 12 * * *'  # 9시 00분
+    - cron: '30 12 * * *' # 9시 30분
+    - cron: '0 13 * * *'  # 10시 00분
+    - cron: '30 13 * * *' # 10시 30분
+    - cron: '0 14 * * *'  # 11시 00분
+    - cron: '30 14 * * *' # 11시 30분
+  workflow_dispatch:
+jobs:
+  run:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v3
+      - uses: actions/setup-python@v4
+        with:
+          python-version: '3.9'
+      - run: pip install -r requirements.txt
+      - run: python intraday_bot.py
