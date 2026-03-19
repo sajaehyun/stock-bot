@@ -1,17 +1,28 @@
-name: Daily Stock Analysis
+name: Intraday 30min Analysis
 on:
   schedule:
     - cron: '0 4 * * *'
+    - cron: '30 4 * * *'
     - cron: '0 5 * * *'
+    - cron: '30 5 * * *'
     - cron: '0 6 * * *'
+    - cron: '30 6 * * *'
     - cron: '0 7 * * *'
+    - cron: '30 7 * * *'
     - cron: '0 8 * * *'
+    - cron: '30 8 * * *'
     - cron: '0 9 * * *'
+    - cron: '30 9 * * *'
     - cron: '0 10 * * *'
+    - cron: '30 10 * * *'
     - cron: '0 11 * * *'
+    - cron: '30 11 * * *'
     - cron: '0 12 * * *'
+    - cron: '30 12 * * *'
     - cron: '0 13 * * *'
+    - cron: '30 13 * * *'
     - cron: '0 14 * * *'
+    - cron: '30 14 * * *'
   workflow_dispatch:
 jobs:
   run:
@@ -22,4 +33,4 @@ jobs:
         with:
           python-version: '3.9'
       - run: pip install -r requirements.txt
-      - run: python bot.py
+      - run: python intraday_bot.py
