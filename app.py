@@ -380,10 +380,7 @@ def index():
     else:
         # 실시간 모드
         is_historical = False
-        if not app.config['CACHED_DATA'] and not app.config['IS_ANALYZING']:
-            app.config['IS_ANALYZING'] = True
-            thread = threading.Thread(target=run_analysis_background)
-            thread.start()
+        # 자동 분석 시작 로직 제거 (빈 페이지, 버튼 클릭 시 작동)
             
         display_data = app.config['CACHED_DATA']
         # Bubble up highlight cards
@@ -404,6 +401,7 @@ def index():
         max_date=max_date
     )
 
+@app.route('/analyze')
 @app.route('/refresh')
 def refresh():
     if not app.config['IS_ANALYZING']:
