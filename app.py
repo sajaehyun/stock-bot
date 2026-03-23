@@ -8,8 +8,6 @@ from bot import analyze
 
 app = Flask(__name__)
 
-app = Flask(__name__)
-
 # Global cache
 app.config['CACHED_DATA'] = {}
 app.config['LAST_UPDATE'] = "업데이트 된 적 없음"
@@ -212,7 +210,7 @@ HTML_TEMPLATE = """
 </head>
 <body>
     <div class="container">
-        <h1>추천 종목 TOP 10</h1>
+        <h1>오늘의 추천 종목 (진입 가능)</h1>
         
         <div class="header-info">
             <div>
@@ -412,11 +410,11 @@ HTML_TEMPLATE = """
                         <h3>데이터를 분석하고 있습니다...</h3>
                         <p>분석 완료까지 잠시만 기다려주세요.<br>이 페이지는 5초마다 자동 새로고침됩니다.</p>
                     {% else %}
-                        <h3>분석된 데이터가 없습니다.</h3>
+                        <h3>오늘 진입 가능 종목 없음</h3>
                         {% if is_historical %}
-                            <p>선택하신 날짜에 저장된 리포트가 없거나 오류가 있습니다.</p>
+                            <p>선택하신 날짜에 저장된 리포트가 없거나 진입 가능한 추천 종목이 없습니다.</p>
                         {% else %}
-                            <p>상단의 '분석 실행' 버튼을 눌러주세요.</p>
+                            <p>현재 전략(🟢 진입 가능) 기준에 부합하는 종목이 발견되지 않았습니다.</p>
                         {% endif %}
                     {% endif %}
                 </div>

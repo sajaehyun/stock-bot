@@ -491,7 +491,7 @@ def analyze(send_telegram=True):
         # 총점 (일반 신호 + 숏스퀴즈)
         total_score = score + (squeeze_score * 0.5)  # 숏스퀴즈 가중치 50%
         
-        if total_score > 0 or score > 0:
+        if "🟢 진입 가능" in entry_status:
             results.append({
                 'ticker': ticker,
                 'data': data,
@@ -553,34 +553,37 @@ def analyze(send_telegram=True):
     messages.append(msg_summary)
     
     # 리포트 메시지 분할 작성
-    current_msg = f"📊 SOXL 고급 분석 리포트 (TOP 10)\n\n"
+    current_msg = f"📊 SOXL 고급 분석 리포트 (추천 종목)\n\n"
     
-    for i, result in enumerate(top10, 1):
-        d = result['data']
-        icon = "🥇" if i == 1 else "🥈" if i == 2 else "🥉" if i == 3 else f"{i}️⃣"
-        
-        stock_msg = f"{icon} **{d['ticker']}** | ${d['price']:.2f}\n"
-        stock_msg += f"상태: {result['entry_status']} | 변동: {d['change_1d']:+.2f}% (1d)\n"
-        stock_msg += f"추천가: ${result['buy_price']:.2f} | 1차 목표가: ${result['target_price_1']:.2f} | 손절가: ${result['stop_loss']:.2f}\n"
-        stock_msg += f"총점: {result['total_score']:.1f} | 위험수익비: {result['risk_reward']}배\n"
-        stock_msg += f"\n📈 기술지표:\n"
-        stock_msg += f"RSI: {d['rsi']:.1f} | MACD: {d['macd_histogram']:+.3f} | Stoch: {d['stoch_k']:.1f}\n"
-        stock_msg += f"BB: {d['bb_lower']:.2f}~{d['bb_upper']:.2f} (폭: {d['bb_width']:.1f}%)\n"
-        stock_msg += f"MA추세: {d['ma_trend']} | 거래량: {d['vol_ratio']:.0f}% | 52주: {d['price_to_52low']:.1f}%\n"
-        stock_msg += f"\n🎯 신호:\n"
-        for signal in result['signals'][:3]:  # 상위 3개만
-            stock_msg += f"{signal}\n"
-        if result['squeeze_signals']:
-            stock_msg += f"\n🚀 숏스퀴즈:\n"
-            for squeeze in result['squeeze_signals'][:2]:  # 상위 2개만
-                stock_msg += f"{squeeze}\n"
-        stock_msg += f"\n{'─'*60}\n"
-        
-        if len(current_msg) + len(stock_msg) > 3500:
-            messages.append(current_msg)
-            current_msg = stock_msg
-        else:
-            current_msg += stock_msg
+    if not top10:
+        current_msg += "📌 오늘 진입 가능한 추천 종목이 없습니다.\n"
+    else:
+        for i, result in enumerate(top10, 1):
+            d = result['data']
+            icon = "🥇" if i == 1 else "🥈" if i == 2 else "🥉" if i == 3 else f"{i}️⃣"
+            
+            stock_msg = f"{icon} **{d['ticker']}** | ${d['price']:.2f}\n"
+            stock_msg += f"상태: {result['entry_status']} | 변동: {d['change_1d']:+.2f}% (1d)\n"
+            stock_msg += f"추천가: ${result['buy_price']:.2f} | 1차 목표가: ${result['target_price_1']:.2f} | 손절가: ${result['stop_loss']:.2f}\n"
+            stock_msg += f"총점: {result['total_score']:.1f} | 위험수익비: {result['risk_reward']}배\n"
+            stock_msg += f"\n📈 기술지표:\n"
+            stock_msg += f"RSI: {d['rsi']:.1f} | MACD: {d['macd_histogram']:+.3f} | Stoch: {d['stoch_k']:.1f}\n"
+            stock_msg += f"BB: {d['bb_lower']:.2f}~{d['bb_upper']:.2f} (폭: {d['bb_width']:.1f}%)\n"
+            stock_msg += f"MA추세: {d['ma_trend']} | 거래량: {d['vol_ratio']:.0f}% | 52주: {d['price_to_52low']:.1f}%\n"
+            stock_msg += f"\n🎯 신호:\n"
+            for signal in result['signals'][:3]:  # 상위 3개만
+                stock_msg += f"{signal}\n"
+            if result['squeeze_signals']:
+                stock_msg += f"\n🚀 숏스퀴즈:\n"
+                for squeeze in result['squeeze_signals'][:2]:  # 상위 2개만
+                    stock_msg += f"{squeeze}\n"
+            stock_msg += f"\n{'─'*60}\n"
+            
+            if len(current_msg) + len(stock_msg) > 3500:
+                messages.append(current_msg)
+                current_msg = stock_msg
+            else:
+                current_msg += stock_msg
     
     current_msg += f"\n📌 면책: 기계 학습 기반 분석이며, 투자 조언이 아닙니다.\n"
     messages.append(current_msg)
