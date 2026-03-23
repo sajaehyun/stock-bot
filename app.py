@@ -6,25 +6,7 @@ from datetime import datetime
 import threading
 from bot import analyze
 
-import firebase_admin
-from firebase_admin import credentials, firestore
-
 app = Flask(__name__)
-
-# Firebase 초기화
-cred_json = os.getenv("FIREBASE_CREDENTIALS")
-if cred_json:
-    try:
-        cred_dict = json.loads(cred_json)
-        cred = credentials.Certificate(cred_dict)
-        if not firebase_admin._apps:
-            firebase_admin.initialize_app(cred)
-        db = firestore.client()
-    except Exception as e:
-        print(f"Firebase initialization error: {e}")
-        db = None
-else:
-    db = None
 
 # Global cache
 app.config['CACHED_DATA'] = []
@@ -32,35 +14,15 @@ app.config['LAST_UPDATE'] = "업데이트 된 적 없음"
 app.config['IS_ANALYZING'] = False
 
 def get_available_dates():
-    if not db:
-        # Fallback to local
-        history_dir = "history"
-        if not os.path.exists(history_dir):
-            return []
-        files = glob.glob(os.path.join(history_dir, "*.json"))
-        dates = [os.path.basename(f).replace('.json', '') for f in files]
-        dates.sort(reverse=True)
-        return dates
-        
-    try:
-        docs = db.collection("stock_analysis").stream()
-        dates = [doc.id for doc in docs]
-        dates.sort(reverse=True)
-        return dates
-    except Exception as e:
-        print(f"Error fetching from Firebase: {e}")
+    history_dir = "history"
+    if not os.path.exists(history_dir):
         return []
+    files = glob.glob(os.path.join(history_dir, "*.json"))
+    dates = [os.path.basename(f).replace('.json', '') for f in files]
+    dates.sort(reverse=True)
+    return dates
 
 def get_history_data(date_str):
-    if db:
-        try:
-            doc = db.collection("stock_analysis").document(date_str).get()
-            if doc.exists:
-                return doc.to_dict().get("data")
-        except Exception as e:
-            print(f"Error fetching document from Firebase: {e}")
-            
-    # Fallback to local
     filepath = os.path.join("history", f"{date_str}.json")
     if os.path.exists(filepath):
         try:

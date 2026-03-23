@@ -2,25 +2,8 @@ import os, json
 import requests, yfinance as yf, pandas as pd, numpy as np
 from datetime import datetime, timedelta
 from dotenv import load_dotenv
-import firebase_admin
-from firebase_admin import credentials, firestore
 
 load_dotenv()
-
-# Firebase 초기화
-cred_json = os.getenv("FIREBASE_CREDENTIALS")
-if cred_json:
-    try:
-        cred_dict = json.loads(cred_json)
-        cred = credentials.Certificate(cred_dict)
-        if not firebase_admin._apps:
-            firebase_admin.initialize_app(cred)
-        db = firestore.client()
-    except Exception as e:
-        print(f"Firebase initialization error: {e}")
-        db = None
-else:
-    db = None
 
 TELEGRAM_TOKEN = os.getenv("TELEGRAM_TOKEN", "8475611635:AAFYDJ48HdVJyBctnsr9Sl3CLW-4JWk_jmE")
 CHAT_ID = os.getenv("CHAT_ID", "8630004087")
@@ -411,26 +394,11 @@ def analyze(send_telegram=True):
             print(f"❌ 텔레그램 전송 실패: {e}")
             
     # === 기록 저장 ===
-    today_str = datetime.now().strftime('%Y-%m-%d')
-    
-    # === Firebase Firestore 저장 ===
-    if db:
-        try:
-            # numpy 자료형을 순수 python 자료형으로 변환 (Firestore 저장용)
-            pure_top10 = json.loads(json.dumps(top10, cls=NpEncoder))
-            db.collection("stock_analysis").document(today_str).set({
-                "timestamp": datetime.now().isoformat(),
-                "data": pure_top10
-            })
-            print(f"✅ Firebase Firestore에 저장 완료! ({today_str})")
-        except Exception as e:
-            print(f"❌ Firebase Firestore 저장 실패: {e}")
-
-    # === 로컬 history 보관 (장애 대비용) ===
     history_dir = "history"
     if not os.path.exists(history_dir):
         os.makedirs(history_dir)
         
+    today_str = datetime.now().strftime('%Y-%m-%d')
     history_file = os.path.join(history_dir, f"{today_str}.json")
     
     try:
