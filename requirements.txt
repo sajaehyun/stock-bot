@@ -1,2 +1,8 @@
 yfinance
 requests
+Flask
+python-dotenv
+gunicorn
+firebase-admin
+pandas
+numpy

@@ -1,8 +1,29 @@
+import os, json
 import requests, yfinance as yf, pandas as pd, numpy as np
 from datetime import datetime, timedelta
+from dotenv import load_dotenv
+import firebase_admin
+from firebase_admin import credentials, firestore
 
-TELEGRAM_TOKEN = "8475611635:AAFYDJ48HdVJyBctnsr9Sl3CLW-4JWk_jmE"
-CHAT_ID = "8630004087"
+load_dotenv()
+
+# Firebase 초기화
+cred_json = os.getenv("FIREBASE_CREDENTIALS")
+if cred_json:
+    try:
+        cred_dict = json.loads(cred_json)
+        cred = credentials.Certificate(cred_dict)
+        if not firebase_admin._apps:
+            firebase_admin.initialize_app(cred)
+        db = firestore.client()
+    except Exception as e:
+        print(f"Firebase initialization error: {e}")
+        db = None
+else:
+    db = None
+
+TELEGRAM_TOKEN = os.getenv("TELEGRAM_TOKEN", "8475611635:AAFYDJ48HdVJyBctnsr9Sl3CLW-4JWk_jmE")
+CHAT_ID = os.getenv("CHAT_ID", "8630004087")
 TELEGRAM_API = f"https://api.telegram.org/bot{TELEGRAM_TOKEN}/sendMessage"
 
 SOXL_STOCKS = ["MU","NVDA","AMAT","AMD","AVGO","QCOM","INTC","ON","MCHP","NXPI","MRVL","SNDK","LRCX","KLAC","ASML","TXN","ADI","SLAB","SWKS","MPWR","ONTO","RCLK","PLOW","ICHR","MANH","FORM","COHR","MATH","CAVM","RMBS"]
@@ -16,6 +37,8 @@ def get_technical_indicators(ticker):
         
         close = hist['Close'].astype(float)
         volume = hist['Volume'].astype(float)
+        high = hist['High'].astype(float)
+        low = hist['Low'].astype(float)
         
         # === RSI (14) ===
         delta = close.diff()
@@ -32,6 +55,7 @@ def get_technical_indicators(ticker):
         signal = macd.ewm(span=9).mean()
         macd_histogram = macd - signal
         macd_val = float(macd_histogram.iloc[-1]) if not pd.isna(macd_histogram.iloc[-1]) else 0.0
+        macd_hist_prev = float(macd_histogram.iloc[-2]) if len(macd_histogram) > 1 and not pd.isna(macd_histogram.iloc[-2]) else 0.0
         
         # === Stochastic ===
         low14 = close.rolling(window=14).min()
@@ -40,6 +64,7 @@ def get_technical_indicators(ticker):
         stoch_d = stoch_k.rolling(window=3).mean()
         stoch_k_val = float(stoch_k.iloc[-1]) if not pd.isna(stoch_k.iloc[-1]) else 50.0
         stoch_d_val = float(stoch_d.iloc[-1]) if not pd.isna(stoch_d.iloc[-1]) else 50.0
+        stoch_k_prev = float(stoch_k.iloc[-2]) if len(stoch_k) > 1 and not pd.isna(stoch_k.iloc[-2]) else 50.0
         
         # === Bollinger Bands ===
         bb_mid = close.rolling(window=20).mean()
@@ -90,6 +115,29 @@ def get_technical_indicators(ticker):
             ma_trend = "💀 데드크로스"
         else:
             ma_trend = "➡️ 중립"
+            
+        # === Ichimoku Cloud ===
+        high9 = high.rolling(window=9).max()
+        low9 = low.rolling(window=9).min()
+        tenkan_sen = (high9 + low9) / 2
+        
+        high26 = high.rolling(window=26).max()
+        low26 = low.rolling(window=26).min()
+        kijun_sen = (high26 + low26) / 2
+        
+        senkou_span_a = ((tenkan_sen + kijun_sen) / 2).shift(26)
+        
+        high52_ichi = high.rolling(window=52).max()
+        low52_ichi = low.rolling(window=52).min()
+        senkou_span_b = ((high52_ichi + low52_ichi) / 2).shift(26)
+        
+        sa_val = float(senkou_span_a.iloc[-1]) if len(senkou_span_a) > 0 and not pd.isna(senkou_span_a.iloc[-1]) else current_price
+        sb_val = float(senkou_span_b.iloc[-1]) if len(senkou_span_b) > 0 and not pd.isna(senkou_span_b.iloc[-1]) else current_price
+        
+        cloud_top = max(sa_val, sb_val)
+        cloud_bottom = min(sa_val, sb_val)
+        is_above_cloud = current_price > cloud_top
+        is_below_cloud = current_price < cloud_bottom
         
         # === 변동률 ===
         change_1d = ((close.iloc[-1] - close.iloc[-2]) / close.iloc[-2]) * 100 if close.iloc[-2] > 0 else 0.0
@@ -101,7 +149,9 @@ def get_technical_indicators(ticker):
             'price': current_price,
             'rsi': rsi_val,
             'macd_histogram': macd_val,
+            'macd_hist_prev': macd_hist_prev,
             'stoch_k': stoch_k_val,
+            'stoch_k_prev': stoch_k_prev,
             'stoch_d': stoch_d_val,
             'bb_upper': bb_upper_val,
             'bb_lower': bb_lower_val,
@@ -122,6 +172,10 @@ def get_technical_indicators(ticker):
             'change_1d': change_1d,
             'change_5d': change_5d,
             'change_20d': change_20d,
+            'cloud_top': cloud_top,
+            'cloud_bottom': cloud_bottom,
+            'is_above_cloud': is_above_cloud,
+            'is_below_cloud': is_below_cloud,
         }
     except Exception as e:
         print(f"Error processing {ticker}: {e}")
@@ -208,6 +262,14 @@ def calculate_score(data):
     if data['change_5d'] < -10:
         score += 15
         signals.append(f"⬇️ 5일 큰 낙폭 ({data['change_5d']:.2f}%)")
+        
+    # === Ichimoku 신호 ===
+    if data['is_above_cloud']:
+        score += 15
+        signals.append("☁️ 구름대 돌파 (상승 추세)")
+    if data['is_below_cloud']:
+        score -= 50
+        signals.append("❌ 구름대 아래 (진입 금지)")
     
     return max(0, score), signals
 
@@ -243,7 +305,39 @@ def detect_short_squeeze_candidates(data):
     
     return squeeze_score, squeeze_signals
 
-def analyze():
+def evaluate_entry_status(data):
+    """진입 조건 필터링 검사"""
+    cond_cloud = data['is_above_cloud']
+    cond_rsi = 30 <= data['rsi'] <= 70
+    cond_macd = data['macd_histogram'] > data['macd_hist_prev']
+    cond_stoch = (30 <= data['stoch_k'] <= 70) or (data['stoch_k'] > data['stoch_k_prev'])
+    cond_ma20 = data['price'] > data['ma20']
+    cond_vol = data['vol_ratio'] >= 100
+    
+    if data['is_below_cloud']:
+        return "❌ 회피"
+        
+    if cond_cloud and cond_rsi and cond_macd and cond_stoch and cond_ma20 and cond_vol:
+        return "🟢 진입 가능"
+        
+    if cond_cloud and (cond_rsi or cond_macd or cond_ma20):
+        return "🟡 선택"
+        
+    return "⏳ 대기"
+    
+class NpEncoder(json.JSONEncoder):
+    def default(self, obj):
+        if isinstance(obj, np.integer):
+            return int(obj)
+        if isinstance(obj, np.floating):
+            return float(obj)
+        if isinstance(obj, np.ndarray):
+            return obj.tolist()
+        if isinstance(obj, bool) or isinstance(obj, np.bool_):
+            return bool(obj)
+        return super(NpEncoder, self).default(obj)
+
+def analyze(send_telegram=True):
     """메인 분석 함수"""
     results = []
     
@@ -254,6 +348,7 @@ def analyze():
         
         score, signals = calculate_score(data)
         squeeze_score, squeeze_signals = detect_short_squeeze_candidates(data)
+        entry_status = evaluate_entry_status(data)
         
         # 총점 (일반 신호 + 숏스퀴즈)
         total_score = score + (squeeze_score * 0.5)  # 숏스퀴즈 가중치 50%
@@ -267,6 +362,12 @@ def analyze():
                 'total_score': total_score,
                 'signals': signals,
                 'squeeze_signals': squeeze_signals,
+                'entry_status': entry_status,
+                'buy_price': data['price'],
+                'target_price_1': data['price'] * 1.10,
+                'target_price_2': data['price'] * 1.20,
+                'stop_loss': data['price'] * 0.95,
+                'risk_reward': 2.0
             })
     
     # === 상위 10개 선별 ===
@@ -283,8 +384,9 @@ def analyze():
         icon = "🥇" if i == 1 else "🥈" if i == 2 else "🥉" if i == 3 else f"{i}️⃣"
         
         msg += f"{icon} **{d['ticker']}** | ${d['price']:.2f}\n"
-        msg += f"변동: {d['change_1d']:+.2f}% (1일) | {d['change_5d']:+.2f}% (5일)\n"
-        msg += f"점수: {result['score']:.0f} | 숏스퀴즈: {result['squeeze_score']:.0f}\n"
+        msg += f"상태: {result['entry_status']} | 변동: {d['change_1d']:+.2f}% (1d)\n"
+        msg += f"추천가: ${result['buy_price']:.2f} | 1차 목표가: ${result['target_price_1']:.2f} | 손절가: ${result['stop_loss']:.2f}\n"
+        msg += f"총점: {result['total_score']:.1f} | 위험수익비: {result['risk_reward']}배\n"
         msg += f"\n📈 기술지표:\n"
         msg += f"RSI: {d['rsi']:.1f} | MACD: {d['macd_histogram']:+.3f} | Stoch: {d['stoch_k']:.1f}\n"
         msg += f"BB: {d['bb_lower']:.2f}~{d['bb_upper']:.2f} (폭: {d['bb_width']:.1f}%)\n"
@@ -301,8 +403,43 @@ def analyze():
     msg += f"\n📌 면책: 기계 학습 기반 분석이며, 투자 조언이 아닙니다.\n"
     
     # === 텔레그램 전송 ===
-    requests.post(TELEGRAM_API, json={'chat_id': CHAT_ID, 'text': msg, 'parse_mode': 'Markdown'})
-    print("✅ 분석 완료 및 텔레그램 전송!")
+    if send_telegram:
+        try:
+            requests.post(TELEGRAM_API, json={'chat_id': CHAT_ID, 'text': msg, 'parse_mode': 'Markdown'})
+            print("✅ 분석 완료 및 텔레그램 전송!")
+        except Exception as e:
+            print(f"❌ 텔레그램 전송 실패: {e}")
+            
+    # === 기록 저장 ===
+    today_str = datetime.now().strftime('%Y-%m-%d')
+    
+    # === Firebase Firestore 저장 ===
+    if db:
+        try:
+            # numpy 자료형을 순수 python 자료형으로 변환 (Firestore 저장용)
+            pure_top10 = json.loads(json.dumps(top10, cls=NpEncoder))
+            db.collection("stock_analysis").document(today_str).set({
+                "timestamp": datetime.now().isoformat(),
+                "data": pure_top10
+            })
+            print(f"✅ Firebase Firestore에 저장 완료! ({today_str})")
+        except Exception as e:
+            print(f"❌ Firebase Firestore 저장 실패: {e}")
+
+    # === 로컬 history 보관 (장애 대비용) ===
+    history_dir = "history"
+    if not os.path.exists(history_dir):
+        os.makedirs(history_dir)
+        
+    history_file = os.path.join(history_dir, f"{today_str}.json")
+    
+    try:
+        with open(history_file, "w", encoding='utf-8') as f:
+            json.dump(top10, f, ensure_ascii=False, indent=4, cls=NpEncoder)
+    except Exception as e:
+        print(f"Error saving history: {e}")
+        
+    return top10
 
 if __name__ == "__main__":
-    analyze()
+    analyze(send_telegram=True)
