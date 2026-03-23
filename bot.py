@@ -513,73 +513,88 @@ def analyze(send_telegram=True):
     top10 = results[:10]
     
     
-    # === 메시지 생성 ===
-    msg = f"📊 일일 증시 요약 & 예측\n"
-    msg += f"🕙 {datetime.now().strftime('%Y-%m-%d %H:%M:%S')} KST\n"
-    msg += f"{'='*60}\n\n"
+    # === 메시지 생성 및 분할 ===
+    messages = []
+    
+    msg_summary = f"📊 일일 증시 요약 & 예측\n"
+    msg_summary += f"🕙 {datetime.now().strftime('%Y-%m-%d %H:%M:%S')} KST\n"
+    msg_summary += f"{'='*60}\n\n"
     
     # 1. 증시 요약
     idx = market_summary.get('indices', {})
-    msg += "🌐 **전일 증시 동향**\n"
-    if 'S&P500' in idx: msg += f"S&P500: {idx['S&P500']['change']:+.2f}% | "
-    if 'Nasdaq100' in idx: msg += f"Nasdaq100: {idx['Nasdaq100']['change']:+.2f}%\n"
-    if 'DowJones' in idx: msg += f"DowJones: {idx['DowJones']['change']:+.2f}% | "
-    if 'Russell2000' in idx: msg += f"Russell2000: {idx['Russell2000']['change']:+.2f}%\n"
+    msg_summary += "🌐 **전일 증시 동향**\n"
+    if 'S&P500' in idx: msg_summary += f"S&P500: {idx['S&P500']['change']:+.2f}% | "
+    if 'Nasdaq100' in idx: msg_summary += f"Nasdaq100: {idx['Nasdaq100']['change']:+.2f}%\n"
+    if 'DowJones' in idx: msg_summary += f"DowJones: {idx['DowJones']['change']:+.2f}% | "
+    if 'Russell2000' in idx: msg_summary += f"Russell2000: {idx['Russell2000']['change']:+.2f}%\n"
     
-    msg += f"\n😨 **VIX 공포지수**: {idx.get('VIX',{}).get('price',0):.2f} ({market_summary.get('vix_status', '데이터 없음')})\n\n"
+    msg_summary += f"\n😨 **VIX 공포지수**: {idx.get('VIX',{}).get('price',0):.2f} ({market_summary.get('vix_status', '데이터 없음')})\n\n"
     
-    msg += "📊 **섹터별 등락 현황**\n"
+    msg_summary += "📊 **섹터별 등락 현황**\n"
     top_sec = ", ".join([f"{s['name']}({s['change']:+.1f}%)" for s in market_summary.get('top_sectors', [])])
     bot_sec = ", ".join([f"{s['name']}({s['change']:+.1f}%)" for s in market_summary.get('bottom_sectors', [])])
-    msg += f"🟢 TOP 3: {top_sec if top_sec else '없음'}\n"
-    msg += f"🔴 BOTTOM 3: {bot_sec if bot_sec else '없음'}\n\n"
+    msg_summary += f"🟢 TOP 3: {top_sec if top_sec else '없음'}\n"
+    msg_summary += f"🔴 BOTTOM 3: {bot_sec if bot_sec else '없음'}\n\n"
     
-    msg += "📅 **오늘 주요 일정/뉴스 (Alpha Vantage)**\n"
+    msg_summary += "📅 **오늘 주요 일정/뉴스 (Alpha Vantage)**\n"
     for ev in market_summary.get('today_events', []):
-        msg += f"- {ev}\n"
-    msg += "\n"
+        msg_summary += f"- {ev}\n"
+    msg_summary += "\n"
     
     # 2. 내일 증시 예상
-    msg += "🤖 **AI 내일 증시 예상**\n"
-    msg += f"기대 방향성: 상승 {tomorrow_pred.get('probs',{}).get('up','-')}% / 하락 {tomorrow_pred.get('probs',{}).get('down','-')}% / 횡보 {tomorrow_pred.get('probs',{}).get('flat','-')}%\n"
-    msg += f"나스닥100 RSI: {tomorrow_pred.get('qqq_rsi',0):.1f} | MACD: {tomorrow_pred.get('macd_dir','-')} | 뉴스 감성: {market_summary.get('news_sentiment',0):.2f}\n"
-    msg += "⚠️ **주요 리스크 요인**\n"
+    msg_summary += "🤖 **AI 내일 증시 예상**\n"
+    msg_summary += f"기대 방향성: 상승 {tomorrow_pred.get('probs',{}).get('up','-')}% / 하락 {tomorrow_pred.get('probs',{}).get('down','-')}% / 횡보 {tomorrow_pred.get('probs',{}).get('flat','-')}%\n"
+    msg_summary += f"나스닥100 RSI: {tomorrow_pred.get('qqq_rsi',0):.1f} | MACD: {tomorrow_pred.get('macd_dir','-')} | 뉴스 감성: {market_summary.get('news_sentiment',0):.2f}\n"
+    msg_summary += "⚠️ **주요 리스크 요인**\n"
     for r in tomorrow_pred.get('risks', []):
-        msg += f"- {r}\n"
+        msg_summary += f"- {r}\n"
     
-    msg += f"\n{'='*60}\n"
-    msg += f"📊 SOXL 고급 분석 리포트 (TOP 10)\n\n"
+    msg_summary += f"\n{'='*60}\n"
+    messages.append(msg_summary)
+    
+    # 리포트 메시지 분할 작성
+    current_msg = f"📊 SOXL 고급 분석 리포트 (TOP 10)\n\n"
     
     for i, result in enumerate(top10, 1):
         d = result['data']
         icon = "🥇" if i == 1 else "🥈" if i == 2 else "🥉" if i == 3 else f"{i}️⃣"
         
-        msg += f"{icon} **{d['ticker']}** | ${d['price']:.2f}\n"
-        msg += f"상태: {result['entry_status']} | 변동: {d['change_1d']:+.2f}% (1d)\n"
-        msg += f"추천가: ${result['buy_price']:.2f} | 1차 목표가: ${result['target_price_1']:.2f} | 손절가: ${result['stop_loss']:.2f}\n"
-        msg += f"총점: {result['total_score']:.1f} | 위험수익비: {result['risk_reward']}배\n"
-        msg += f"\n📈 기술지표:\n"
-        msg += f"RSI: {d['rsi']:.1f} | MACD: {d['macd_histogram']:+.3f} | Stoch: {d['stoch_k']:.1f}\n"
-        msg += f"BB: {d['bb_lower']:.2f}~{d['bb_upper']:.2f} (폭: {d['bb_width']:.1f}%)\n"
-        msg += f"MA추세: {d['ma_trend']} | 거래량: {d['vol_ratio']:.0f}% | 52주: {d['price_to_52low']:.1f}%\n"
-        msg += f"\n🎯 신호:\n"
+        stock_msg = f"{icon} **{d['ticker']}** | ${d['price']:.2f}\n"
+        stock_msg += f"상태: {result['entry_status']} | 변동: {d['change_1d']:+.2f}% (1d)\n"
+        stock_msg += f"추천가: ${result['buy_price']:.2f} | 1차 목표가: ${result['target_price_1']:.2f} | 손절가: ${result['stop_loss']:.2f}\n"
+        stock_msg += f"총점: {result['total_score']:.1f} | 위험수익비: {result['risk_reward']}배\n"
+        stock_msg += f"\n📈 기술지표:\n"
+        stock_msg += f"RSI: {d['rsi']:.1f} | MACD: {d['macd_histogram']:+.3f} | Stoch: {d['stoch_k']:.1f}\n"
+        stock_msg += f"BB: {d['bb_lower']:.2f}~{d['bb_upper']:.2f} (폭: {d['bb_width']:.1f}%)\n"
+        stock_msg += f"MA추세: {d['ma_trend']} | 거래량: {d['vol_ratio']:.0f}% | 52주: {d['price_to_52low']:.1f}%\n"
+        stock_msg += f"\n🎯 신호:\n"
         for signal in result['signals'][:3]:  # 상위 3개만
-            msg += f"{signal}\n"
+            stock_msg += f"{signal}\n"
         if result['squeeze_signals']:
-            msg += f"\n🚀 숏스퀴즈:\n"
+            stock_msg += f"\n🚀 숏스퀴즈:\n"
             for squeeze in result['squeeze_signals'][:2]:  # 상위 2개만
-                msg += f"{squeeze}\n"
-        msg += f"\n{'─'*60}\n"
+                stock_msg += f"{squeeze}\n"
+        stock_msg += f"\n{'─'*60}\n"
+        
+        if len(current_msg) + len(stock_msg) > 3500:
+            messages.append(current_msg)
+            current_msg = stock_msg
+        else:
+            current_msg += stock_msg
     
-    msg += f"\n📌 면책: 기계 학습 기반 분석이며, 투자 조언이 아닙니다.\n"
+    current_msg += f"\n📌 면책: 기계 학습 기반 분석이며, 투자 조언이 아닙니다.\n"
+    messages.append(current_msg)
     
     # === 텔레그램 전송 ===
     if send_telegram:
-        try:
-            requests.post(TELEGRAM_API, json={'chat_id': CHAT_ID, 'text': msg, 'parse_mode': 'Markdown'})
-            print("분석 완료 및 텔레그램 전송 성공!")
-        except Exception as e:
-            print(f"텔레그램 전송 실패: {e}")
+        for m in messages:
+            try:
+                res = requests.post(TELEGRAM_API, json={'chat_id': CHAT_ID, 'text': m, 'parse_mode': 'Markdown'})
+                if res.status_code != 200:
+                    print(f"텔레그램 분할 전송 실패: {res.status_code} - {res.text}")
+            except Exception as e:
+                print(f"텔레그램 전송 예외 발생: {e}")
+        print("분석 완료 및 텔레그램 분할 전송 수행!")
             
     # === 기록 저장 ===
     history_dir = "history"
