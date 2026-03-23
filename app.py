@@ -8,8 +8,10 @@ from bot import analyze
 
 app = Flask(__name__)
 
+app = Flask(__name__)
+
 # Global cache
-app.config['CACHED_DATA'] = []
+app.config['CACHED_DATA'] = {}
 app.config['LAST_UPDATE'] = "업데이트 된 적 없음"
 app.config['IS_ANALYZING'] = False
 
@@ -236,6 +238,86 @@ HTML_TEMPLATE = """
                 {% endif %}
             </div>
         </div>
+        
+        {% if market_summary and tomorrow_pred %}
+        <div class="summary-section" style="display: flex; gap: 20px; margin-bottom: 20px; flex-wrap: wrap;">
+            <!-- 증시 요약 카드 -->
+            <div class="summary-card" style="flex: 1; min-width: 300px; background: #1e1e1e; padding: 20px; border-radius: 8px; box-shadow: 0 4px 6px rgba(0,0,0,0.3); border-top: 4px solid #f39c12;">
+                <h3 style="margin-top: 0; margin-bottom: 15px; border-bottom: 1px solid #333; padding-bottom: 10px; color: #fff;">🌐 전일 증시 동향</h3>
+                <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 10px; margin-bottom: 15px;">
+                    {% if market_summary.indices %}
+                        {% for name, idx in market_summary.indices.items() %}
+                        <div style="background: #2a2a2a; padding: 10px; border-radius: 5px; text-align: center;">
+                            <div style="color: #aaa; font-size: 13px; margin-bottom: 5px;">{{ name }}</div>
+                            <div style="font-size: 16px; font-weight: bold; {% if name != 'VIX' %}{% if idx.change > 0 %}color: #4CAF50;{% elif idx.change < 0 %}color: #F44336;{% endif %}{% else %}{% if idx.price > 20 %}color: #F44336;{% elif idx.price < 15 %}color: #4CAF50;{% endif %}{% endif %}">
+                                {% if name != 'VIX' %}
+                                    {{ "%+.2f"|format(idx.change) }}%
+                                {% else %}
+                                    {{ "%.2f"|format(idx.price) }}
+                                {% endif %}
+                            </div>
+                        </div>
+                        {% endfor %}
+                    {% endif %}
+                </div>
+                
+                <h4 style="margin: 15px 0 10px 0; color: #fff;">📊 주요 섹터 등락 (Top/Bottom 3)</h4>
+                <div style="font-size: 14px; margin-bottom: 5px; background: #2a2a2a; padding: 8px; border-radius: 5px;">
+                    <span style="color: #4CAF50; font-weight:bold;">🟢 상위:</span> 
+                    {% for s in market_summary.top_sectors %}
+                        {{ s.name }}(<span style="color:#4CAF50;">{{ "%+.1f"|format(s.change) }}%</span>){% if not loop.last %}, {% endif %}
+                    {% endfor %}
+                </div>
+                <div style="font-size: 14px; margin-bottom: 15px; background: #2a2a2a; padding: 8px; border-radius: 5px;">
+                    <span style="color: #F44336; font-weight:bold;">🔴 하위:</span> 
+                    {% for s in market_summary.bottom_sectors %}
+                        {{ s.name }}(<span style="color:#F44336;">{{ "%+.1f"|format(s.change) }}%</span>){% if not loop.last %}, {% endif %}
+                    {% endfor %}
+                </div>
+                
+                <h4 style="margin: 15px 0 10px 0; color: #fff;">📅 오늘 주요 뉴스 및 경제지표 (Alpha Vantage)</h4>
+                <ul style="margin: 0; padding-left: 20px; font-size: 13px; color: #ddd; background: #2a2a2a; padding: 10px 10px 10px 30px; border-radius: 5px;">
+                    {% for ev in market_summary.today_events %}
+                        <li style="margin-bottom: 5px;">{{ ev }}</li>
+                    {% endfor %}
+                </ul>
+            </div>
+            
+            <!-- AI 내일 증시 예상 카드 -->
+            <div class="summary-card" style="flex: 1; min-width: 300px; background: #1e1e1e; padding: 20px; border-radius: 8px; box-shadow: 0 4px 6px rgba(0,0,0,0.3); border-top: 4px solid #9c27b0;">
+                <h3 style="margin-top: 0; margin-bottom: 15px; border-bottom: 1px solid #333; padding-bottom: 10px; color: #fff;">🤖 AI 내일 증시 예상</h3>
+                
+                <div style="display: flex; gap: 10px; margin-bottom: 15px;">
+                    <div style="flex: 1; background: #2a2a2a; padding: 15px; border-radius: 5px; text-align: center;">
+                        <div style="color: #4CAF50; font-size: 14px; margin-bottom: 5px;">상승 확률</div>
+                        <div style="font-size: 24px; font-weight: bold; color: #4CAF50;">{{ tomorrow_pred.probs.up }}%</div>
+                    </div>
+                    <div style="flex: 1; background: #2a2a2a; padding: 15px; border-radius: 5px; text-align: center;">
+                        <div style="color: #FFEB3B; font-size: 14px; margin-bottom: 5px;">횡보 확률</div>
+                        <div style="font-size: 24px; font-weight: bold; color: #FFEB3B;">{{ tomorrow_pred.probs.flat }}%</div>
+                    </div>
+                    <div style="flex: 1; background: #2a2a2a; padding: 15px; border-radius: 5px; text-align: center;">
+                        <div style="color: #F44336; font-size: 14px; margin-bottom: 5px;">하락 확률</div>
+                        <div style="font-size: 24px; font-weight: bold; color: #F44336;">{{ tomorrow_pred.probs.down }}%</div>
+                    </div>
+                </div>
+                
+                <h4 style="margin: 15px 0 10px 0; color: #fff;">📈 방향성 근거 지표</h4>
+                <div style="display: flex; justify-content: space-between; background: #2a2a2a; padding: 15px; border-radius: 5px; margin-bottom: 15px; font-size: 14px;">
+                    <div style="text-align: center;"><span style="color:#aaa; display:block; font-size:12px; margin-bottom:3px;">나스닥100 RSI</span> <b>{{ "%.1f"|format(tomorrow_pred.qqq_rsi) }}</b></div>
+                    <div style="text-align: center;"><span style="color:#aaa; display:block; font-size:12px; margin-bottom:3px;">나스닥100 MACD</span> <b>{{ tomorrow_pred.macd_dir }}</b></div>
+                    <div style="text-align: center;"><span style="color:#aaa; display:block; font-size:12px; margin-bottom:3px;">뉴스 감성 점수</span> <b>{{ "%.2f"|format(market_summary.news_sentiment) }}</b></div>
+                </div>
+                
+                <h4 style="margin: 15px 0 10px 0; color: #fff;">⚠️ 주요 리스크 요인</h4>
+                <ul style="margin: 0; padding-left: 20px; font-size: 14px; color: #ff9800; background: #332b1a; padding: 10px 10px 10px 30px; border-radius: 5px; border-left: 3px solid #ff9800;">
+                    {% for risk in tomorrow_pred.risks %}
+                        <li style="margin-bottom: 5px;">{{ risk }}</li>
+                    {% endfor %}
+                </ul>
+            </div>
+        </div>
+        {% endif %}
 
         <div class="stock-grid">
             {% for item in data %}
@@ -354,8 +436,9 @@ HTML_TEMPLATE = """
 
 def run_analysis_background():
     try:
-        top10 = analyze(send_telegram=True)
-        app.config['CACHED_DATA'] = top10
+        # analyze now returns a dict mapping market_summary, tomorrow_pred, and top10
+        save_data = analyze(send_telegram=True)
+        app.config['CACHED_DATA'] = save_data
         app.config['LAST_UPDATE'] = datetime.now().strftime('%Y-%m-%d %H:%M:%S')
     except Exception as e:
         print(f"Error during background analysis: {e}")
@@ -367,23 +450,38 @@ def index():
     selected_date = request.args.get('date', '')
     available_dates = get_available_dates()
     
+    market_summary = None
+    tomorrow_pred = None
+    display_data = []
+    
     # 만약 특정 날짜가 선택되었다면 해당 데이터를 보여준다
     if selected_date and selected_date in available_dates:
-        display_data = get_history_data(selected_date)
-        last_update = f"{selected_date} 과거 테이터"
+        hist_data = get_history_data(selected_date)
+        last_update = f"{selected_date} 과거 데이터"
         is_historical = True
         
-        # Sort display_data to bring entry possible to top if history JSON doesn't do it magically
+        if isinstance(hist_data, list):
+            display_data = hist_data
+        elif isinstance(hist_data, dict):
+            display_data = hist_data.get('top10', [])
+            market_summary = hist_data.get('market_summary')
+            tomorrow_pred = hist_data.get('tomorrow_pred')
+            
         if display_data:
             display_data.sort(key=lambda x: ('🟢' in str(x.get('entry_status','')), x.get('total_score', 0)), reverse=True)
             
     else:
         # 실시간 모드
         is_historical = False
-        # 자동 분석 시작 로직 제거 (빈 페이지, 버튼 클릭 시 작동)
+        
+        cached_data = app.config['CACHED_DATA']
+        if isinstance(cached_data, list):
+            display_data = cached_data
+        elif isinstance(cached_data, dict):
+            display_data = cached_data.get('top10', [])
+            market_summary = cached_data.get('market_summary')
+            tomorrow_pred = cached_data.get('tomorrow_pred')
             
-        display_data = app.config['CACHED_DATA']
-        # Bubble up highlight cards
         if display_data:
             display_data.sort(key=lambda x: ('🟢' in str(x.get('entry_status','')), x.get('total_score', 0)), reverse=True)
             
@@ -392,7 +490,9 @@ def index():
     max_date = available_dates[0] if available_dates else datetime.now().strftime('%Y-%m-%d')
     return render_template_string(
         HTML_TEMPLATE, 
-        data=display_data, 
+        data=display_data,
+        market_summary=market_summary,
+        tomorrow_pred=tomorrow_pred,
         last_update=last_update,
         is_analyzing=app.config['IS_ANALYZING'],
         available_dates=available_dates,

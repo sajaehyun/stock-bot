@@ -320,8 +320,163 @@ class NpEncoder(json.JSONEncoder):
             return bool(obj)
         return super(NpEncoder, self).default(obj)
 
+def get_market_summary():
+    """1. 시장 요약 정보 수집"""
+    summary = {}
+    
+    # 지수 수집
+    indices = {
+        'S&P500': '^GSPC',
+        'Nasdaq100': '^NDX',
+        'DowJones': '^DJI',
+        'Russell2000': '^RUT',
+        'VIX': '^VIX'
+    }
+    
+    idx_data = {}
+    for name, ticker in indices.items():
+        try:
+            hist = yf.Ticker(ticker).history(period="5d")
+            if len(hist) >= 2:
+                prev_close = hist['Close'].iloc[-2]
+                curr_close = hist['Close'].iloc[-1]
+                pct_change = ((curr_close - prev_close) / prev_close) * 100
+                idx_data[name] = {'price': float(curr_close), 'change': float(pct_change)}
+            else:
+                idx_data[name] = {'price': 0, 'change': 0}
+        except:
+            idx_data[name] = {'price': 0, 'change': 0}
+            
+    summary['indices'] = idx_data
+    
+    # VIX 해석
+    vix_level = idx_data.get('VIX', {}).get('price', 0)
+    if vix_level < 15:
+        summary['vix_status'] = "🟢 안정적 (변동성 낮음)"
+    elif vix_level < 20:
+        summary['vix_status'] = "🟡 보통 (정상적인 시장)"
+    elif vix_level < 30:
+        summary['vix_status'] = "🟠 경계 (변동성 확대)"
+    else:
+        summary['vix_status'] = "🔴 공포 (극심한 변동성)"
+        
+    # 섹터 수익률
+    sectors = {
+        'XLK': '기술', 'XLV': '헬스케어', 'XLF': '금융', 
+        'XLY': '임의소비재', 'XLC': '통신', 'XLI': '산업',
+        'XLP': '필수소비재', 'XLE': '에너지', 'XLU': '유틸리티',
+        'XLRE': '부동산', 'XLB': '소재'
+    }
+    
+    sector_changes = []
+    for ticker, name in sectors.items():
+        try:
+            hist = yf.Ticker(ticker).history(period="5d")
+            if len(hist) >= 2:
+                prev = hist['Close'].iloc[-2]
+                curr = hist['Close'].iloc[-1]
+                pct = ((curr - prev) / prev) * 100
+                sector_changes.append({'name': name, 'change': float(pct)})
+        except:
+            pass
+            
+    if sector_changes:
+        sector_changes.sort(key=lambda x: x['change'], reverse=True)
+        summary['top_sectors'] = sector_changes[:3]
+        summary['bottom_sectors'] = sector_changes[-3:]
+    else:
+        summary['top_sectors'] = []
+        summary['bottom_sectors'] = []
+    
+    # Alpha Vantage 주요 경제지표/뉴스 (News Sentiment 활용)
+    # 실제 경제지표 캘린더는 프리티어로 제약이 많으므로 News Sentiment 로 대체/병행
+    av_api_key = os.getenv("ALPHA_VANTAGE_API_KEY", "demo")
+    av_url = f"https://www.alphavantage.co/query?function=NEWS_SENTIMENT&tickers=QQQ&apikey={av_api_key}"
+    try:
+        req = requests.get(av_url, timeout=5)
+        data = req.json()
+        sentiment_score = 0
+        events = []
+        if 'feed' in data and len(data['feed']) > 0:
+            scores = [float(item['overall_sentiment_score']) for item in data['feed'][:10] if 'overall_sentiment_score' in item]
+            if scores:
+                sentiment_score = sum(scores) / len(scores)
+            
+            # 이벤트 요약 (최신 뉴스 2건)
+            for item in data['feed'][:2]:
+                events.append(item.get('title', 'Unknown News'))
+                
+        summary['news_sentiment'] = sentiment_score
+        summary['today_events'] = events if events else ["(AlphaVantage) 주요 뉴스/일정 없음"]
+    except:
+        summary['news_sentiment'] = 0.15 # default neutral
+        summary['today_events'] = ["데이터를 불러올 수 없습니다."]
+        
+    return summary
+
+def get_tomorrow_prediction(market_summary):
+    """2. AI 내일 증시 예상"""
+    pred = {}
+    
+    # QQQ(나스닥 100) 기술적 지표로 전체 시장 대변
+    qqq_data = get_technical_indicators('QQQ')
+    
+    up_prob = 40
+    down_prob = 40
+    
+    if qqq_data:
+        rsi = qqq_data['rsi']
+        macd_hist = qqq_data['macd_histogram']
+        pred['qqq_rsi'] = rsi
+        pred['macd_dir'] = "상승 📈" if macd_hist > 0 else "하락 📉"
+        
+        # 확률 계산 로직 (간단한 rule-based)
+        if rsi < 40:
+            up_prob += 15; down_prob -= 15
+        elif rsi > 60:
+            down_prob += 15; up_prob -= 15
+            
+        if macd_hist > 0:
+            up_prob += 10; down_prob -= 10
+        else:
+            down_prob += 10; up_prob -= 10
+    else:
+        pred['qqq_rsi'] = 50.0
+        pred['macd_dir'] = "데이터 없음"
+            
+    sentiment = market_summary.get('news_sentiment', 0)
+    if sentiment > 0.2:
+        up_prob += 10; down_prob -= 10
+    elif sentiment < -0.2:
+        down_prob += 10; up_prob -= 10
+        
+    up_prob = min(max(int(up_prob), 5), 90)
+    down_prob = min(max(int(down_prob), 5), 90)
+    flat_prob = 100 - up_prob - down_prob
+    
+    pred['probs'] = {'up': up_prob, 'down': down_prob, 'flat': flat_prob}
+        
+    # 리스크 요인
+    risks = []
+    vix_level = market_summary.get('indices', {}).get('VIX', {}).get('price', 0)
+    
+    if vix_level >= 20:
+        risks.append(f"VIX 지수 상승 ({vix_level:.2f})에 따른 시장 변동성 확대")
+    if sentiment <= -0.1:
+        risks.append("부정적인 뉴스 센티멘트 확산 현상")
+    if pred['qqq_rsi'] >= 70:
+        risks.append(f"나스닥100 단기 과열 (RSI: {pred['qqq_rsi']:.1f}) 차익실현 매물 경계")
+    if not risks:
+        risks.append("특별한 거시적 리스크 없음")
+        risks.append("기술적 주요 지지/저항선 부근 움직임 주시")
+        
+    pred['risks'] = risks[:3]
+    return pred
+
 def analyze(send_telegram=True):
     """메인 분석 함수"""
+    market_summary = get_market_summary()
+    tomorrow_pred = get_tomorrow_prediction(market_summary)
     results = []
     
     for ticker in SOXL_STOCKS:
@@ -357,10 +512,43 @@ def analyze(send_telegram=True):
     results.sort(key=lambda x: x['total_score'], reverse=True)
     top10 = results[:10]
     
+    
     # === 메시지 생성 ===
-    msg = f"📊 SOXL 고급 분석 리포트 (TOP 10)\n"
+    msg = f"📊 일일 증시 요약 & 예측\n"
     msg += f"🕙 {datetime.now().strftime('%Y-%m-%d %H:%M:%S')} KST\n"
     msg += f"{'='*60}\n\n"
+    
+    # 1. 증시 요약
+    idx = market_summary.get('indices', {})
+    msg += "🌐 **전일 증시 동향**\n"
+    if 'S&P500' in idx: msg += f"S&P500: {idx['S&P500']['change']:+.2f}% | "
+    if 'Nasdaq100' in idx: msg += f"Nasdaq100: {idx['Nasdaq100']['change']:+.2f}%\n"
+    if 'DowJones' in idx: msg += f"DowJones: {idx['DowJones']['change']:+.2f}% | "
+    if 'Russell2000' in idx: msg += f"Russell2000: {idx['Russell2000']['change']:+.2f}%\n"
+    
+    msg += f"\n😨 **VIX 공포지수**: {idx.get('VIX',{}).get('price',0):.2f} ({market_summary.get('vix_status', '데이터 없음')})\n\n"
+    
+    msg += "📊 **섹터별 등락 현황**\n"
+    top_sec = ", ".join([f"{s['name']}({s['change']:+.1f}%)" for s in market_summary.get('top_sectors', [])])
+    bot_sec = ", ".join([f"{s['name']}({s['change']:+.1f}%)" for s in market_summary.get('bottom_sectors', [])])
+    msg += f"🟢 TOP 3: {top_sec if top_sec else '없음'}\n"
+    msg += f"🔴 BOTTOM 3: {bot_sec if bot_sec else '없음'}\n\n"
+    
+    msg += "📅 **오늘 주요 일정/뉴스 (Alpha Vantage)**\n"
+    for ev in market_summary.get('today_events', []):
+        msg += f"- {ev}\n"
+    msg += "\n"
+    
+    # 2. 내일 증시 예상
+    msg += "🤖 **AI 내일 증시 예상**\n"
+    msg += f"기대 방향성: 상승 {tomorrow_pred.get('probs',{}).get('up','-')}% / 하락 {tomorrow_pred.get('probs',{}).get('down','-')}% / 횡보 {tomorrow_pred.get('probs',{}).get('flat','-')}%\n"
+    msg += f"나스닥100 RSI: {tomorrow_pred.get('qqq_rsi',0):.1f} | MACD: {tomorrow_pred.get('macd_dir','-')} | 뉴스 감성: {market_summary.get('news_sentiment',0):.2f}\n"
+    msg += "⚠️ **주요 리스크 요인**\n"
+    for r in tomorrow_pred.get('risks', []):
+        msg += f"- {r}\n"
+    
+    msg += f"\n{'='*60}\n"
+    msg += f"📊 SOXL 고급 분석 리포트 (TOP 10)\n\n"
     
     for i, result in enumerate(top10, 1):
         d = result['data']
@@ -402,12 +590,17 @@ def analyze(send_telegram=True):
     history_file = os.path.join(history_dir, f"{today_str}.json")
     
     try:
+        save_data = {
+            "market_summary": market_summary,
+            "tomorrow_pred": tomorrow_pred,
+            "top10": top10
+        }
         with open(history_file, "w", encoding='utf-8') as f:
-            json.dump(top10, f, ensure_ascii=False, indent=4, cls=NpEncoder)
+            json.dump(save_data, f, ensure_ascii=False, indent=4, cls=NpEncoder)
     except Exception as e:
         print(f"Error saving history: {e}")
         
-    return top10
+    return save_data
 
 if __name__ == "__main__":
     analyze(send_telegram=True)
