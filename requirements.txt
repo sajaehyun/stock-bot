@@ -5,3 +5,5 @@ python-dotenv
 gunicorn
 pandas
 numpy
+lxml
+html5lib

@@ -9,7 +9,18 @@ TELEGRAM_TOKEN = os.getenv("TELEGRAM_TOKEN", "8475611635:AAFYDJ48HdVJyBctnsr9Sl3
 CHAT_ID = os.getenv("CHAT_ID", "8630004087")
 TELEGRAM_API = f"https://api.telegram.org/bot{TELEGRAM_TOKEN}/sendMessage"
 
-SOXL_STOCKS = ["MU","NVDA","AMAT","AMD","AVGO","QCOM","INTC","ON","MCHP","NXPI","MRVL","SNDK","LRCX","KLAC","ASML","TXN","ADI","SLAB","SWKS","MPWR","ONTO","RCLK","PLOW","ICHR","MANH","FORM","COHR","MATH","CAVM","RMBS"]
+import concurrent.futures
+
+def get_sp500_tickers():
+    try:
+        url = "https://en.wikipedia.org/wiki/List_of_S%26P_500_companies"
+        tickers = pd.read_html(url, storage_options={'User-Agent': 'Mozilla/5.0'})[0]['Symbol'].tolist()
+        # yfinance expects '-' instead of '.' for stocks like BRK.B
+        tickers = [t.replace('.', '-') for t in tickers]
+        return tickers
+    except Exception as e:
+        print(f"Error fetching S&P 500 tickers: {e}")
+        return ["AAPL", "MSFT", "NVDA", "GOOGL", "AMZN"]
 
 def get_technical_indicators(ticker):
     """야후 파이낸스 데이터로 기술 지표 계산"""
@@ -473,40 +484,53 @@ def get_tomorrow_prediction(market_summary):
     pred['risks'] = risks[:3]
     return pred
 
+def analyze_single_ticker(ticker):
+    data = get_technical_indicators(ticker)
+    if data is None:
+        return None
+        
+    score, signals = calculate_score(data)
+    squeeze_score, squeeze_signals = detect_short_squeeze_candidates(data)
+    entry_status = evaluate_entry_status(data)
+    
+    # 총점 (일반 신호 + 숏스퀴즈)
+    total_score = score + (squeeze_score * 0.5)  # 숏스퀴즈 가중치 50%
+    
+    if "🟢 진입 가능" in entry_status:
+        return {
+            'ticker': ticker,
+            'data': data,
+            'score': score,
+            'squeeze_score': squeeze_score,
+            'total_score': total_score,
+            'signals': signals,
+            'squeeze_signals': squeeze_signals,
+            'entry_status': entry_status,
+            'buy_price': data['price'],
+            'target_price_1': data['price'] * 1.10,
+            'target_price_2': data['price'] * 1.20,
+            'stop_loss': data['price'] * 0.95,
+            'risk_reward': 2.0
+        }
+    return None
+
 def analyze(send_telegram=True):
     """메인 분석 함수"""
     market_summary = get_market_summary()
     tomorrow_pred = get_tomorrow_prediction(market_summary)
+    
+    tickers = get_sp500_tickers()
     results = []
     
-    for ticker in SOXL_STOCKS:
-        data = get_technical_indicators(ticker)
-        if data is None:
-            continue
-        
-        score, signals = calculate_score(data)
-        squeeze_score, squeeze_signals = detect_short_squeeze_candidates(data)
-        entry_status = evaluate_entry_status(data)
-        
-        # 총점 (일반 신호 + 숏스퀴즈)
-        total_score = score + (squeeze_score * 0.5)  # 숏스퀴즈 가중치 50%
-        
-        if "🟢 진입 가능" in entry_status:
-            results.append({
-                'ticker': ticker,
-                'data': data,
-                'score': score,
-                'squeeze_score': squeeze_score,
-                'total_score': total_score,
-                'signals': signals,
-                'squeeze_signals': squeeze_signals,
-                'entry_status': entry_status,
-                'buy_price': data['price'],
-                'target_price_1': data['price'] * 1.10,
-                'target_price_2': data['price'] * 1.20,
-                'stop_loss': data['price'] * 0.95,
-                'risk_reward': 2.0
-            })
+    with concurrent.futures.ThreadPoolExecutor(max_workers=20) as executor:
+        futures = {executor.submit(analyze_single_ticker, ticker): ticker for ticker in tickers}
+        for future in concurrent.futures.as_completed(futures):
+            try:
+                res = future.result()
+                if res is not None:
+                    results.append(res)
+            except Exception as e:
+                print(f"Error processing ticker: {e}")
     
     # === 상위 10개 선별 ===
     results.sort(key=lambda x: x['total_score'], reverse=True)
@@ -553,7 +577,7 @@ def analyze(send_telegram=True):
     messages.append(msg_summary)
     
     # 리포트 메시지 분할 작성
-    current_msg = f"📊 SOXL 고급 분석 리포트 (추천 종목)\n\n"
+    current_msg = f"📊 S&P 500 고급 분석 리포트 (추천 종목)\n\n"
     
     if not top10:
         current_msg += "📌 오늘 진입 가능한 추천 종목이 없습니다.\n"
