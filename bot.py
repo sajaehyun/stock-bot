@@ -5,8 +5,8 @@ from dotenv import load_dotenv
 
 load_dotenv()
 
-TELEGRAM_TOKEN = os.getenv("TELEGRAM_TOKEN", "8475611635:AAFYDJ48HdVJyBctnsr9Sl3CLW-4JWk_jmE")
-CHAT_ID = os.getenv("CHAT_ID", "8630004087")
+TELEGRAM_TOKEN = os.getenv("TELEGRAM_TOKEN")
+CHAT_ID = os.getenv("CHAT_ID")
 TELEGRAM_API = f"https://api.telegram.org/bot{TELEGRAM_TOKEN}/sendMessage"
 
 import concurrent.futures
