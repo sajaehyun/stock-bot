@@ -389,9 +389,9 @@ def analyze(send_telegram=True):
     if send_telegram:
         try:
             requests.post(TELEGRAM_API, json={'chat_id': CHAT_ID, 'text': msg, 'parse_mode': 'Markdown'})
-            print("✅ 분석 완료 및 텔레그램 전송!")
+            print("분석 완료 및 텔레그램 전송 성공!")
         except Exception as e:
-            print(f"❌ 텔레그램 전송 실패: {e}")
+            print(f"텔레그램 전송 실패: {e}")
             
     # === 기록 저장 ===
     history_dir = "history"

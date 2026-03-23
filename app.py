@@ -354,7 +354,7 @@ HTML_TEMPLATE = """
 
 def run_analysis_background():
     try:
-        top10 = analyze(send_telegram=False)
+        top10 = analyze(send_telegram=True)
         app.config['CACHED_DATA'] = top10
         app.config['LAST_UPDATE'] = datetime.now().strftime('%Y-%m-%d %H:%M:%S')
     except Exception as e:
