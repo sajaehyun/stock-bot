@@ -57,24 +57,30 @@ class AppState:
             self.last_error = None
 
     def ensure_history_loaded(self):
-        """데이터가 없는 경우에만 히스토리 파일 로드 (최초 1회 최적화)"""
+        """데이터가 없는 경우에만 히스토리 파일 로드 (Double-checked locking 최적화)"""
+        # 1. 락 없이 1차 조건 확인
         with self.lock:
-            # 캐시가 있고 데이터가 있거나, 현재 분석 중이면 스킵
             if self.processed_results or self.is_analyzing:
                 return
+        
+        # 2. 락 밖에서 블로킹 I/O 수행
+        available = get_available_dates()
+        if not available:
+            return
+        
+        hist = get_history_data(available[0])
+        if not hist:
+            return
+
+        # 3. 락 안에서 데이터 업데이트 (다시 한번 조건 확인)
+        with self.lock:
+            if self.processed_results or self.is_analyzing:
+                return # I/O 도중 다른 스레드가 먼저 채웠을 경우 무시
             
-            # 히스토리 디렉토리 탐색
-            available = get_available_dates()
-            if not available:
-                return
-            
-            # 최신 히스토리 읽기
-            hist = get_history_data(available[0])
-            if hist:
-                raw = hist.get('results', [])
-                self.processed_results, self.green_count, self.wait_count = preprocess_data(raw)
-                self.last_update = hist.get('analyzed_at', available[0])
-                self.analyzed_at = raw[0].get('analyzed_at', '-') if raw else "-"
+            raw = hist.get('results', [])
+            self.processed_results, self.green_count, self.wait_count = preprocess_data(raw)
+            self.last_update = hist.get('analyzed_at', available[0])
+            self.analyzed_at = raw[0].get('analyzed_at', '-') if raw else "-"
 
     def start_analyzing(self):
         """분석 시작 전 중복 방지 체크 및 초기화"""
@@ -86,14 +92,16 @@ class AppState:
             return True
 
     def finish_analyzing(self, error=None):
-        """분석 작업 종료 처리 (성공 또는 실패)"""
+        """분석 작업 종료 처리 (성공 또는 실패 상태 정리)"""
         with self.lock:
             self.is_analyzing = False
-            if error:
+            if error is not None:
                 self.last_error = str(error)
+            else:
+                self.last_error = None # 성공 시 이전 에러 명시적 초기화
 
     def get_snapshot(self):
-        """일관성 있는 화면 표시용 데이터 스탬샷"""
+        """일관성 있는 화면 표시용 데이터 스냅샷"""
         with self.lock:
             return {
                 'data': list(self.processed_results),
