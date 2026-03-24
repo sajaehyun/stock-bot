@@ -3,134 +3,149 @@ import glob
 import json
 import threading
 import re
-from flask import Flask, render_template_string, redirect, url_for, request, jsonify
+import traceback
+from flask import Flask, render_template_string, redirect, url_for, jsonify
 from datetime import datetime
 from bot import analyze
 
 app = Flask(__name__)
 
-# ─── 전역 상수 ────────────────────────────────
+# ─────────────────────────────
+# 전역 상수
+# ─────────────────────────────
 ENTRY_EMOJI_MAP = {'🟢': 'green', '⏳': 'wait', '❌': 'stop'}
+
 
 def preprocess_data(data_raw):
     results = []
     g_cnt = 0
     w_cnt = 0
+
     for item in data_raw:
         p = dict(item)
         entry_str = p.get('entry', '')
         p['entry_key'] = 'unknown'
+
         for emoji, key in ENTRY_EMOJI_MAP.items():
             if emoji in entry_str:
                 p['entry_key'] = key
                 if emoji == '🟢': g_cnt += 1
                 elif emoji == '⏳': w_cnt += 1
                 break
+
         results.append(p)
+
     return results, g_cnt, w_cnt
 
 
-# ─── 상태 관리 ────────────────────────────────
+# ─────────────────────────────
+# 상태 관리
+# ─────────────────────────────
 class AppState:
     def __init__(self):
         self.processed_results = []
-        self.green_count  = 0
-        self.wait_count   = 0
-        self.last_update  = "분석된 적 없음"
-        self.analyzed_at  = "-"
+        self.green_count = 0
+        self.wait_count = 0
+        self.last_update = "분석된 적 없음"
+        self.analyzed_at = "-"
         self.is_analyzing = False
-        self.last_error   = None
-        self.lock         = threading.RLock()
+        self.last_error = None
+        self.lock = threading.RLock()
 
     def update_results(self, data_dict):
         with self.lock:
             results_raw = data_dict.get('results', [])
+
+            if not results_raw:
+                raise ValueError("결과가 비어있음")
+
             self.processed_results, self.green_count, self.wait_count = \
                 preprocess_data(results_raw)
+
             self.last_update = datetime.now().strftime('%Y-%m-%d %H:%M:%S')
-            self.analyzed_at = (
-                results_raw[0].get('analyzed_at', '-') if results_raw else "-"
-            )
+            self.analyzed_at = results_raw[0].get('analyzed_at', '-')
             self.last_error = None
 
-    def ensure_history_loaded(self):
-        """데이터 없을 때만 최신 히스토리 로드 (Double-checked locking)"""
-        with self.lock:
-            if self.processed_results or self.is_analyzing:
-                return
+    def load_latest_history(self):
+        """무조건 히스토리에서라도 데이터 불러오기"""
+        files = sorted(
+            glob.glob("history/*.json"),
+            reverse=True
+        )
 
-        available = get_available_dates()
-        if not available:
-            return
+        for f in files:
+            try:
+                with open(f, 'r', encoding='utf-8') as fp:
+                    data = json.load(fp)
 
-        hist = get_history_data(available[0])
-        if not hist:
-            return
+                if data.get('results'):
+                    print(f"[Fallback] {f} 로드 성공")
+                    self.update_results(data)
+                    return True
+            except Exception:
+                continue
 
-        with self.lock:
-            if self.processed_results or self.is_analyzing:
-                return
-            raw = hist.get('results', [])
-            self.processed_results, self.green_count, self.wait_count = \
-                preprocess_data(raw)
-            self.last_update = hist.get('analyzed_at', available[0])
-            self.analyzed_at = raw[0].get('analyzed_at', '-') if raw else "-"
+        return False
 
     def start_analyzing(self):
         with self.lock:
             if self.is_analyzing:
                 return False
             self.is_analyzing = True
-            self.last_error   = None
+            self.last_error = None
             return True
 
     def finish_analyzing(self, error=None):
         with self.lock:
             self.is_analyzing = False
-            self.last_error   = str(error) if error is not None else None
+            self.last_error = error
 
     def get_snapshot(self):
         with self.lock:
             return {
-                'data':         list(self.processed_results),
-                'green_count':  self.green_count,
-                'wait_count':   self.wait_count,
-                'last_update':  self.last_update,
-                'analyzed_at':  self.analyzed_at,
+                'data': self.processed_results,
+                'green_count': self.green_count,
+                'wait_count': self.wait_count,
+                'last_update': self.last_update,
+                'analyzed_at': self.analyzed_at,
                 'is_analyzing': self.is_analyzing,
-                'last_error':   self.last_error,
+                'last_error': self.last_error,
             }
+
 
 state = AppState()
 
-# ─── 헬퍼 함수 ────────────────────────────────
-def get_available_dates():
-    history_dir = "history"
-    if not os.path.exists(history_dir):
-        return []
-    files = glob.glob(os.path.join(history_dir, "*.json"))
-    # 타임스탬프 포함 파일명 지원 (YYYY-MM-DD_HHMMSS)
-    return sorted(
-        [os.path.basename(f).replace('.json', '') for f in files],
-        reverse=True
-    )
+
+# ─────────────────────────────
+# 분석 실행 (핵심 수정)
+# ─────────────────────────────
+def run_analysis_background():
+    error_msg = None
+
+    try:
+        print("\n[DEBUG] analyze() 실행 시작")
+        result = analyze()
+        print("[DEBUG] analyze() 결과:", type(result))
+
+        if not result or not result.get("results"):
+            raise ValueError("analyze 결과 없음")
+
+        state.update_results(result)
+
+    except Exception as e:
+        traceback.print_exc()
+        error_msg = str(e)
+        print("[ERROR] 분석 실패 → fallback 시도")
+
+        # 🔥 핵심: 실패 시 히스토리라도 띄움
+        if not state.load_latest_history():
+            print("[ERROR] fallback도 실패")
+
+    finally:
+        state.finish_analyzing(error_msg)
 
 
-def get_history_data(date_str):
-    # YYYY-MM-DD 또는 YYYY-MM-DD_HHMMSS 형식 모두 허용
-    if not re.match(r'^\d{4}-\d{2}-\d{2}(_\d{6})?$', date_str):
-        return None
-    filepath = os.path.join("history", f"{date_str}.json")
-    if os.path.exists(filepath):
-        try:
-            with open(filepath, 'r', encoding='utf-8') as f:
-                return json.load(f)
-        except Exception:
-            return None
-    return None
-
-
-# ─── HTML 템플릿 ───────────────────────────────
+# ─ HTML 템플릿 (기초 스타일 및 레이아웃 유지) ────────────────
 HTML_TEMPLATE = """
 <!DOCTYPE html>
 <html lang="ko">
@@ -435,40 +450,32 @@ async function pollStatus() {
 """
 
 
-# ─── 백그라운드 분석 ──────────────────────────
-def run_analysis_background():
-    error_to_report = None
-    try:
-        results_data = analyze()
-        if not results_data or not isinstance(results_data, dict):
-            raise ValueError(f"유효하지 않은 반환값: {type(results_data)}")
-        if not results_data.get('results'):
-            raise ValueError("분석 결과가 비어있습니다.")
-        state.update_results(results_data)
-    except ValueError as ve:
-        print(f"[Validation Error] {ve}")
-        error_to_report = f"데이터 오류: {ve}"
-    except Exception as e:
-        print(f"[Analysis Error] {e}")
-        error_to_report = f"분석 실패: {e}"
-    finally:
-        state.finish_analyzing(error=error_to_report)
-
-
-# ─── 라우트 ───────────────────────────────────
+# ─────────────────────────────
+# 라우트
+# ─────────────────────────────
 @app.route('/')
 def index():
-    state.ensure_history_loaded()
-    snapshot = state.get_snapshot()
-    return render_template_string(HTML_TEMPLATE, **snapshot)
+    # 🔥 최초 접속 시 무조건 데이터 확보 시도
+    if not state.processed_results:
+        print("[INIT] 데이터 없음 → 분석 시도")
+        try:
+            result = analyze()
+            if result and result.get("results"):
+                state.update_results(result)
+            else:
+                state.load_latest_history()
+        except Exception:
+            traceback.print_exc()
+            state.load_latest_history()
+
+    return render_template_string(HTML_TEMPLATE, **state.get_snapshot())
 
 
 @app.route('/status')
 def status():
-    snapshot = state.get_snapshot()
     return jsonify({
-        'is_analyzing': snapshot['is_analyzing'],
-        'last_error':   snapshot['last_error'],
+        "is_analyzing": state.is_analyzing,
+        "last_error": state.last_error
     })
 
 
@@ -482,4 +489,4 @@ def refresh():
 
 if __name__ == '__main__':
     port = int(os.environ.get('PORT', 5000))
-    app.run(host='0.0.0.0', port=port)
+    app.run(host='0.0.0.0', port=port, debug=True)
