@@ -2,7 +2,8 @@ import os
 import glob
 import json
 import threading
-from flask import Flask, render_template_string, redirect, url_for, request
+import re
+from flask import Flask, render_template_string, redirect, url_for, request, jsonify
 from datetime import datetime
 from bot import analyze
 
@@ -10,7 +11,15 @@ app = Flask(__name__)
 app.config['CACHED_DATA'] = {}
 app.config['LAST_UPDATE'] = "분석된 적 없음"
 app.config['IS_ANALYZING'] = False
+app.config['LAST_ERROR'] = None
 
+_analysis_lock = threading.Lock()
+
+@app.template_filter('contains')
+def contains_filter(value, substring):
+    if not value or not isinstance(value, str):
+        return False
+    return substring in value
 
 def get_available_dates():
     history_dir = "history"
@@ -21,6 +30,8 @@ def get_available_dates():
 
 
 def get_history_data(date_str):
+    if not re.match(r'^\d{4}-\d{2}-\d{2}$', date_str):
+        return None
     filepath = os.path.join("history", f"{date_str}.json")
     if os.path.exists(filepath):
         try:
@@ -102,6 +113,18 @@ HTML_TEMPLATE = """
         /* MAIN */
         .main { max-width: 1600px; margin: 0 auto; padding: 28px 32px; }
 
+        /* ERROR MESSAGE */
+        .error-banner {
+            background: rgba(239, 68, 68, 0.1);
+            border: 1px solid var(--red);
+            color: var(--red);
+            padding: 12px 20px;
+            border-radius: 8px;
+            margin-bottom: 24px;
+            font-size: 14px;
+            display: flex; align-items: center; gap: 10px;
+        }
+
         /* STATS */
         .stats-row {
             display: grid; grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));
@@ -144,8 +167,8 @@ HTML_TEMPLATE = """
             font-size: 12px; font-weight: 700; margin-bottom: 16px;
         }
         .entry-🟢 { background: rgba(34,197,94,0.1); color: var(--green); border: 1px solid rgba(34,197,94,0.2); }
-        .entry-⏳ { background: rgba(234,179,8,0.1); color: var(--yellow); border: 1px solid rgba(234,179,8,0.2); }
-        .entry-❌ { background: rgba(239,68,68,0.1); color: var(--red); border: 1px solid rgba(239,68,68,0.2); }
+        .entry-⏳ { background: rgba(234,179,8,0.1); color: var(--yellow); border: 1px solid rgba(234, 179, 8, 0.2); }
+        .entry-❌ { background: rgba(239,68,68,0.1); color: var(--red); border: 1px solid rgba(239, 68, 68, 0.2); }
 
         .metrics-grid {
             display: grid; grid-template-columns: repeat(3, 1fr); gap: 10px; margin-bottom: 16px;
@@ -192,7 +215,7 @@ HTML_TEMPLATE = """
         <div class="header-controls">
             <span class="last-update">업데이트: {{ last_update }}</span>
             {% if is_analyzing %}
-                <span class="btn btn-ghost">⏳ 분석 중...</span>
+                <span class="btn btn-ghost" id="analyzing-status">⏳ 분석 중...</span>
             {% else %}
                 <a href="/refresh" class="btn btn-primary">⚡ 분석 실행</a>
             {% endif %}
@@ -201,6 +224,12 @@ HTML_TEMPLATE = """
 </div>
 
 <div class="main">
+    {% if last_error %}
+    <div class="error-banner">
+        <span>⚠️ 분석 오류: {{ last_error }}</span>
+    </div>
+    {% endif %}
+
     {% if data %}
     <div class="stats-row">
         <div class="stat-card">
@@ -208,11 +237,11 @@ HTML_TEMPLATE = """
             <div class="lbl">분석 종목</div>
         </div>
         <div class="stat-card">
-            <div class="val" style="color:var(--green)">{{ data|selectattr('entry','contains','🟢')|list|length }}</div>
+            <div class="val" style="color:var(--green)">{{ data|selectattr('entry', 'contains', '🟢')|list|length }}</div>
             <div class="lbl">🟢 진입 가능</div>
         </div>
         <div class="stat-card">
-            <div class="val" style="color:var(--yellow)">{{ data|selectattr('entry','contains','⏳')|list|length }}</div>
+            <div class="val" style="color:var(--yellow)">{{ data|selectattr('entry', 'contains', '⏳')|list|length }}</div>
             <div class="lbl">⏳ 대기</div>
         </div>
         <div class="stat-card">
@@ -296,9 +325,25 @@ HTML_TEMPLATE = """
     </div>
 </div>
 
+<script>
+async function pollStatus() {
+    try {
+        const res = await fetch('/status');
+        const data = await res.json();
+        if (!data.is_analyzing) {
+            location.reload();
+        } else {
+            setTimeout(pollStatus, 3000);
+        }
+    } catch (e) {
+        setTimeout(pollStatus, 5000);
+    }
+}
+
 {% if is_analyzing %}
-<script>setTimeout(() => location.reload(), 15000);</script>
+pollStatus();
 {% endif %}
+</script>
 </body>
 </html>
 """
@@ -309,8 +354,10 @@ def run_analysis_background():
         save_data = analyze()
         app.config['CACHED_DATA'] = save_data
         app.config['LAST_UPDATE'] = datetime.now().strftime('%Y-%m-%d %H:%M:%S')
+        app.config['LAST_ERROR'] = None
     except Exception as e:
         print(f"Background analysis error: {e}")
+        app.config['LAST_ERROR'] = str(e)
     finally:
         app.config['IS_ANALYZING'] = False
 
@@ -322,7 +369,6 @@ def index():
     if isinstance(cached, dict):
         data = cached.get('results', [])
     
-    # 캐시가 빈 경우 마지막 히스토리 로드 시도
     if not data:
         available = get_available_dates()
         if available:
@@ -333,16 +379,22 @@ def index():
         HTML_TEMPLATE,
         data=data,
         last_update=app.config['LAST_UPDATE'],
-        is_analyzing=app.config['IS_ANALYZING']
+        is_analyzing=app.config['IS_ANALYZING'],
+        last_error=app.config['LAST_ERROR']
     )
 
+@app.route('/status')
+def status():
+    return jsonify({'is_analyzing': app.config['IS_ANALYZING']})
 
 @app.route('/refresh')
 def refresh():
-    if not app.config['IS_ANALYZING']:
-        app.config['IS_ANALYZING'] = True
-        t = threading.Thread(target=run_analysis_background)
-        t.start()
+    with _analysis_lock:
+        if not app.config['IS_ANALYZING']:
+            app.config['IS_ANALYZING'] = True
+            app.config['LAST_ERROR'] = None
+            t = threading.Thread(target=run_analysis_background, daemon=True)
+            t.start()
     return redirect(url_for('index'))
 
 
