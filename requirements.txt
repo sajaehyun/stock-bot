@@ -1,4 +1,4 @@
-yfinance
+yfinance>=0.2.40
 requests
 Flask
 python-dotenv
@@ -6,5 +6,6 @@ gunicorn
 pandas
 numpy
 lxml
-html5lib
+beautifulsoup4
 rich
+finvizfinance>=0.14.7
