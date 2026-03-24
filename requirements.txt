@@ -7,3 +7,4 @@ pandas
 numpy
 lxml
 html5lib
+rich

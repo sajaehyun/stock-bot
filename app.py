@@ -1,26 +1,24 @@
 import os
 import glob
 import json
+import threading
 from flask import Flask, render_template_string, redirect, url_for, request
 from datetime import datetime
-import threading
 from bot import analyze
 
 app = Flask(__name__)
-
-# Global cache
 app.config['CACHED_DATA'] = {}
-app.config['LAST_UPDATE'] = "업데이트 된 적 없음"
+app.config['LAST_UPDATE'] = "분석된 적 없음"
 app.config['IS_ANALYZING'] = False
+
 
 def get_available_dates():
     history_dir = "history"
     if not os.path.exists(history_dir):
         return []
     files = glob.glob(os.path.join(history_dir, "*.json"))
-    dates = [os.path.basename(f).replace('.json', '') for f in files]
-    dates.sort(reverse=True)
-    return dates
+    return sorted([os.path.basename(f).replace('.json', '') for f in files], reverse=True)
+
 
 def get_history_data(date_str):
     filepath = os.path.join("history", f"{date_str}.json")
@@ -32,481 +30,729 @@ def get_history_data(date_str):
             return None
     return None
 
+
 HTML_TEMPLATE = """
 <!DOCTYPE html>
 <html lang="ko">
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>SOXL 봇 대시보드</title>
+    <title>장기 투자 분석기 · Long-Term Investment Analyzer</title>
+    <meta name="description" content="Buffett·Graham·Lynch·Fisher·Greenblatt·Templeton 6대 투자 이론 기반 S&P 500 종합 분석 대시보드">
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700;800&display=swap" rel="stylesheet">
     <style>
+        :root {
+            --bg:        #07080f;
+            --bg2:       #0e0f1c;
+            --bg3:       #14162a;
+            --border:    rgba(255,255,255,0.07);
+            --accent:    #6366f1;
+            --accent2:   #8b5cf6;
+            --green:     #22c55e;
+            --cyan:      #06b6d4;
+            --yellow:    #eab308;
+            --orange:    #f97316;
+            --red:       #ef4444;
+            --text:      #e2e8f0;
+            --muted:     #64748b;
+            --card-glow: rgba(99,102,241,0.08);
+        }
+        * { box-sizing: border-box; margin: 0; padding: 0; }
         body {
-            background-color: #121212;
-            color: #e0e0e0;
-            font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
-            margin: 0;
-            padding: 20px;
+            background: var(--bg);
+            color: var(--text);
+            font-family: 'Inter', sans-serif;
+            min-height: 100vh;
         }
-        .container {
-            max-width: 1200px;
-            margin: auto;
+
+        /* ── HEADER ── */
+        .header {
+            background: linear-gradient(135deg, #0e0f1c 0%, #14162a 100%);
+            border-bottom: 1px solid var(--border);
+            padding: 0 32px;
+            position: sticky;
+            top: 0;
+            z-index: 100;
+            backdrop-filter: blur(20px);
         }
-        h1 {
-            color: #ffffff;
+        .header-inner {
+            max-width: 1600px;
+            margin: 0 auto;
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            gap: 20px;
+            padding: 16px 0;
+            flex-wrap: wrap;
+        }
+        .logo {
+            display: flex;
+            align-items: center;
+            gap: 12px;
+        }
+        .logo-icon {
+            width: 40px; height: 40px;
+            background: linear-gradient(135deg, var(--accent), var(--accent2));
+            border-radius: 10px;
+            display: flex; align-items: center; justify-content: center;
+            font-size: 20px;
+        }
+        .logo-text h1 {
+            font-size: 18px;
+            font-weight: 700;
+            background: linear-gradient(135deg, #a5b4fc, #e879f9);
+            -webkit-background-clip: text;
+            -webkit-text-fill-color: transparent;
+        }
+        .logo-text p {
+            font-size: 11px;
+            color: var(--muted);
+            margin-top: 1px;
+        }
+        .header-controls {
+            display: flex;
+            align-items: center;
+            gap: 12px;
+            flex-wrap: wrap;
+        }
+        .last-update { font-size: 12px; color: var(--muted); }
+
+        /* ── BUTTONS ── */
+        .btn {
+            display: inline-flex; align-items: center; gap: 8px;
+            padding: 9px 18px;
+            border-radius: 8px;
+            font-size: 13px; font-weight: 600;
+            cursor: pointer;
+            border: none;
+            text-decoration: none;
+            transition: all 0.2s;
+        }
+        .btn-primary {
+            background: linear-gradient(135deg, var(--accent), var(--accent2));
+            color: #fff;
+            box-shadow: 0 4px 15px rgba(99,102,241,0.35);
+        }
+        .btn-primary:hover { transform: translateY(-1px); box-shadow: 0 6px 20px rgba(99,102,241,0.5); }
+        .btn-ghost {
+            background: var(--bg3);
+            color: var(--muted);
+            border: 1px solid var(--border);
+        }
+        .btn-ghost:hover { color: var(--text); border-color: rgba(255,255,255,0.15); }
+        .btn-disabled {
+            background: var(--bg3);
+            color: var(--muted);
+            cursor: not-allowed;
+            border: 1px solid var(--border);
+        }
+
+        /* Spinner */
+        .spinner {
+            width: 14px; height: 14px;
+            border: 2px solid rgba(255,255,255,0.2);
+            border-top-color: #fff;
+            border-radius: 50%;
+            animation: spin 0.8s linear infinite;
+        }
+        @keyframes spin { to { transform: rotate(360deg); } }
+
+        /* Date picker */
+        .date-input {
+            padding: 9px 14px;
+            background: var(--bg3);
+            border: 1px solid var(--border);
+            border-radius: 8px;
+            color: var(--text);
+            font-size: 13px;
+            font-family: 'Inter', sans-serif;
+            cursor: pointer;
+        }
+
+        /* ── MAIN ── */
+        .main { max-width: 1600px; margin: 0 auto; padding: 28px 32px; }
+
+        /* ── STATS ROW ── */
+        .stats-row {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(150px, 1fr));
+            gap: 14px;
+            margin-bottom: 24px;
+        }
+        .stat-card {
+            background: var(--bg2);
+            border: 1px solid var(--border);
+            border-radius: 12px;
+            padding: 16px 20px;
             text-align: center;
         }
-        .header-info {
+        .stat-card .val {
+            font-size: 26px; font-weight: 800;
+            background: linear-gradient(135deg, #a5b4fc, #e879f9);
+            -webkit-background-clip: text;
+            -webkit-text-fill-color: transparent;
+        }
+        .stat-card .lbl { font-size: 11px; color: var(--muted); margin-top: 4px; }
+
+        /* ── FILTER ROW ── */
+        .filter-row {
+            display: flex;
+            align-items: center;
+            gap: 8px;
+            margin-bottom: 24px;
+            flex-wrap: wrap;
+        }
+        .filter-btn {
+            padding: 7px 14px;
+            border-radius: 20px;
+            font-size: 12px; font-weight: 600;
+            cursor: pointer;
+            border: 1px solid var(--border);
+            background: transparent;
+            color: var(--muted);
+            transition: all 0.2s;
+        }
+        .filter-btn:hover, .filter-btn.active {
+            background: var(--bg3);
+            color: var(--text);
+            border-color: rgba(255,255,255,0.2);
+        }
+        .filter-btn[data-signal="강력"] { border-color: rgba(34,197,94,0.3); }
+        .filter-btn[data-signal="강력"].active { background: rgba(34,197,94,0.15); color: var(--green); }
+        .filter-btn[data-signal="매수"] { border-color: rgba(6,182,212,0.3); }
+        .filter-btn[data-signal="매수"].active { background: rgba(6,182,212,0.15); color: var(--cyan); }
+        .filter-btn[data-signal="관망"] { border-color: rgba(234,179,8,0.3); }
+        .filter-btn[data-signal="관망"].active { background: rgba(234,179,8,0.15); color: var(--yellow); }
+        .filter-btn[data-signal="고려"] { border-color: rgba(249,115,22,0.3); }
+        .filter-btn[data-signal="고려"].active { background: rgba(249,115,22,0.15); color: var(--orange); }
+        .filter-btn[data-signal="매도"] { border-color: rgba(239,68,68,0.3); }
+        .filter-btn[data-signal="매도"].active { background: rgba(239,68,68,0.15); color: var(--red); }
+
+        .search-input {
+            margin-left: auto;
+            padding: 7px 14px;
+            background: var(--bg3);
+            border: 1px solid var(--border);
+            border-radius: 20px;
+            color: var(--text);
+            font-size: 12px;
+            font-family: 'Inter', sans-serif;
+            outline: none;
+            min-width: 180px;
+        }
+        .search-input::placeholder { color: var(--muted); }
+
+        /* ── STOCK GRID ── */
+        .stock-grid {
+            display: grid;
+            grid-template-columns: repeat(auto-fill, minmax(360px, 1fr));
+            gap: 18px;
+        }
+
+        .stock-card {
+            background: var(--bg2);
+            border: 1px solid var(--border);
+            border-radius: 16px;
+            padding: 22px;
+            transition: all 0.2s;
+            cursor: pointer;
+            position: relative;
+            overflow: hidden;
+        }
+        .stock-card::before {
+            content: '';
+            position: absolute;
+            top: 0; left: 0; right: 0;
+            height: 3px;
+            background: linear-gradient(90deg, var(--accent), var(--accent2));
+            opacity: 0;
+            transition: opacity 0.2s;
+        }
+        .stock-card:hover {
+            border-color: rgba(99,102,241,0.3);
+            transform: translateY(-2px);
+            box-shadow: 0 8px 30px var(--card-glow);
+        }
+        .stock-card:hover::before { opacity: 1; }
+        .stock-card.signal-강력:hover::before { background: linear-gradient(90deg, #16a34a, #22c55e); }
+        .stock-card.signal-매수:hover::before { background: linear-gradient(90deg, #0891b2, #06b6d4); }
+        .stock-card.signal-관망:hover::before { background: linear-gradient(90deg, #ca8a04, #eab308); }
+        .stock-card.signal-고려:hover::before { background: linear-gradient(90deg, #ea580c, #f97316); }
+        .stock-card.signal-매도:hover::before { background: linear-gradient(90deg, #dc2626, #ef4444); }
+
+        /* Card header */
+        .card-head {
             display: flex;
             justify-content: space-between;
-            align-items: center;
-            background: #1e1e1e;
-            padding: 15px 20px;
-            border-radius: 8px;
-            margin-bottom: 20px;
-            box-shadow: 0 4px 6px rgba(0,0,0,0.3);
-            flex-wrap: wrap;
-            gap: 15px;
+            align-items: flex-start;
+            margin-bottom: 14px;
         }
-        .btn {
-            background-color: #007bff;
-            color: white;
-            border: none;
-            padding: 10px 20px;
-            border-radius: 5px;
-            cursor: pointer;
-            font-size: 15px;
-            font-weight: bold;
-            text-decoration: none;
-            transition: background 0.3s;
+        .card-ticker { font-size: 22px; font-weight: 800; color: #fff; }
+        .card-name { font-size: 12px; color: var(--muted); margin-top: 2px; max-width: 200px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+        .card-price { text-align: right; }
+        .card-price .price { font-size: 18px; font-weight: 700; color: var(--text); }
+        .card-price .currency { font-size: 11px; color: var(--muted); }
+
+        /* Signal badge */
+        .signal-badge {
             display: inline-flex;
+            align-items: center;
+            gap: 6px;
+            padding: 5px 12px;
+            border-radius: 20px;
+            font-size: 12px;
+            font-weight: 700;
+            margin-bottom: 14px;
+        }
+        .sig-강력 { background: rgba(34,197,94,0.15); color: var(--green); border: 1px solid rgba(34,197,94,0.25); }
+        .sig-매수 { background: rgba(6,182,212,0.15); color: var(--cyan); border: 1px solid rgba(6,182,212,0.25); }
+        .sig-관망 { background: rgba(234,179,8,0.15); color: var(--yellow); border: 1px solid rgba(234,179,8,0.25); }
+        .sig-고려 { background: rgba(249,115,22,0.15); color: var(--orange); border: 1px solid rgba(249,115,22,0.25); }
+        .sig-매도 { background: rgba(239,68,68,0.15); color: var(--red); border: 1px solid rgba(239,68,68,0.25); }
+
+        /* Total score ring */
+        .score-row {
+            display: flex;
+            align-items: center;
+            gap: 14px;
+            margin-bottom: 16px;
+        }
+        .score-ring {
+            width: 54px; height: 54px;
+            border-radius: 50%;
+            display: flex; align-items: center; justify-content: center;
+            font-size: 14px; font-weight: 800;
+            flex-shrink: 0;
+            position: relative;
+        }
+        .score-ring-inner {
+            width: 42px; height: 42px;
+            border-radius: 50%;
+            background: var(--bg);
+            display: flex; align-items: center; justify-content: center;
+        }
+        .score-bars { flex: 1; display: flex; flex-direction: column; gap: 5px; }
+        .score-bar-row {
+            display: flex;
             align-items: center;
             gap: 8px;
         }
-        .btn:hover {
-            background-color: #0056b3;
+        .score-bar-label { font-size: 10px; color: var(--muted); width: 52px; flex-shrink: 0; }
+        .score-bar-track {
+            flex: 1;
+            height: 5px;
+            background: rgba(255,255,255,0.06);
+            border-radius: 3px;
+            overflow: hidden;
         }
-        .btn.disabled {
-            background-color: #555;
-            cursor: not-allowed;
-            pointer-events: none;
+        .score-bar-fill {
+            height: 100%;
+            border-radius: 3px;
+            transition: width 0.6s ease;
         }
-        select.date-picker {
-            padding: 8px 12px;
-            border-radius: 5px;
-            background: #333;
-            color: white;
-            border: 1px solid #555;
-            font-size: 15px;
-            cursor: pointer;
-        }
-        
-        /* Loader */
-        .loader {
-            border: 3px solid #f3f3f3;
-            border-top: 3px solid #ffffff;
-            border-radius: 50%;
-            width: 16px;
-            height: 16px;
-            animation: spin 1s linear infinite;
-        }
-        @keyframes spin {
-            0% { transform: rotate(0deg); }
-            100% { transform: rotate(360deg); }
-        }
-        
-        .stock-grid {
+        .score-bar-val { font-size: 10px; color: var(--muted); width: 26px; text-align: right; flex-shrink: 0; }
+
+        /* Mini metrics */
+        .metrics-grid {
             display: grid;
-            grid-template-columns: repeat(auto-fill, minmax(350px, 1fr));
-            gap: 20px;
+            grid-template-columns: 1fr 1fr 1fr;
+            gap: 8px;
+            margin-bottom: 14px;
         }
-        .stock-card {
-            background: #1e1e1e;
+        .metric-item {
+            background: var(--bg3);
             border-radius: 8px;
-            padding: 20px;
-            box-shadow: 0 4px 6px rgba(0,0,0,0.3);
-            border-top: 4px solid #007bff;
-            display: flex;
-            flex-direction: column;
+            padding: 8px 10px;
         }
-        .highlight-card {
-            border: 2px solid #4CAF50 !important;
-            background: #1a2e1d !important;
-            box-shadow: 0 0 15px rgba(76, 175, 80, 0.4);
-            order: -1;
+        .metric-label { font-size: 10px; color: var(--muted); margin-bottom: 3px; }
+        .metric-value { font-size: 13px; font-weight: 700; color: var(--text); }
+        .metric-na { color: var(--muted); font-weight: 400; }
+
+        /* Reasons */
+        .reasons-list { display: flex; flex-direction: column; gap: 4px; }
+        .reason-item {
+            font-size: 11px;
+            color: var(--muted);
+            padding: 4px 8px;
+            border-radius: 5px;
+            background: var(--bg3);
+            line-height: 1.4;
         }
-        .stock-header {
-            display: flex;
-            justify-content: space-between;
-            align-items: center;
-            margin-bottom: 15px;
-            border-bottom: 1px solid #333;
-            padding-bottom: 10px;
+        .reason-item.pos { color: #86efac; }
+        .reason-item.neg { color: #fca5a5; }
+
+        /* Rank badge */
+        .rank-badge {
+            position: absolute;
+            top: 16px; right: 16px;
+            width: 28px; height: 28px;
+            background: var(--bg3);
+            border: 1px solid var(--border);
+            border-radius: 50%;
+            display: flex; align-items: center; justify-content: center;
+            font-size: 11px; font-weight: 700;
+            color: var(--muted);
         }
-        .stock-title {
-            font-size: 24px;
-            font-weight: bold;
-            color: #fff;
+
+        /* Warnings */
+        .warnings-block {
+            margin-top: 10px;
+            padding: 8px 10px;
+            background: rgba(239,68,68,0.08);
+            border: 1px solid rgba(239,68,68,0.2);
+            border-radius: 8px;
         }
-        .stock-rank {
-            background: #007bff;
-            color: #fff;
-            padding: 4px 10px;
-            border-radius: 20px;
-            font-size: 14px;
-            font-weight: bold;
-        }
-        .status-box {
-            background: #2a2a2a;
-            padding: 10px 15px;
-            border-radius: 6px;
-            margin-bottom: 15px;
-            display: flex;
-            justify-content: space-between;
-            align-items: center;
-        }
-        .info-row {
-            display: flex;
-            justify-content: space-between;
-            margin-bottom: 8px;
-            font-size: 15px;
-        }
-        .info-label {
-            color: #aaa;
-        }
-        .info-value {
-            font-weight: bold;
-            color: #fff;
-        }
-        .up { color: #4CAF50; }
-        .down { color: #F44336; }
-        .neutral { color: #FFEB3B; }
-        
-        .section-title {
-            margin-top: 15px;
-            margin-bottom: 10px;
-            font-size: 14px;
-            color: #aaa;
-            border-bottom: 1px solid #333;
-            padding-bottom: 5px;
-        }
-        .signals-list {
-            margin: 0;
-            padding-left: 20px;
-            font-size: 14px;
-            color: #ddd;
-        }
-        .signals-list li {
-            margin-bottom: 4px;
-        }
-        
+        .warnings-block .w-item { font-size: 11px; color: #fca5a5; }
+
+        /* ── EMPTY STATE ── */
         .empty-state {
-            text-align: center;
-            padding: 50px;
-            background: #1e1e1e;
-            border-radius: 8px;
             grid-column: 1 / -1;
+            text-align: center;
+            padding: 80px 40px;
+            background: var(--bg2);
+            border: 1px solid var(--border);
+            border-radius: 20px;
+        }
+        .empty-state h3 { font-size: 22px; margin-bottom: 12px; color: var(--text); }
+        .empty-state p { color: var(--muted); font-size: 14px; line-height: 1.7; }
+
+        /* Hidden */
+        .hidden { display: none !important; }
+
+        /* Responsive */
+        @media (max-width: 600px) {
+            .main { padding: 20px 16px; }
+            .header { padding: 0 16px; }
         }
     </style>
 </head>
 <body>
-    <div class="container">
-        <h1>오늘의 추천 종목 (진입 가능)</h1>
-        
-        <div class="header-info">
-            <div>
-                <strong>마지막 분석 시간:</strong> {{ last_update }}
-            </div>
-            
-            <div style="display: flex; gap: 15px; align-items: center;">
-                <form action="/" method="get" style="margin: 0; display: flex; align-items: center; gap: 10px;">
-                    <input type="date" name="date" class="date-picker" onchange="this.form.submit()" value="{{ selected_date }}" {% if available_dates %}max="{{ available_dates[0] }}" min="{{ available_dates[-1] }}"{% endif %} style="padding: 8px; border-radius: 5px; background: #333; color: white; border: 1px solid #555; cursor: pointer;">
-                    {% if is_historical %}
-                        <a href="/" class="btn" style="background-color: #555; font-size: 13px;">실시간 분석 보기</a>
-                    {% endif %}
-                </form>
-                
-                {% if not is_historical %}
-                    {% if is_analyzing %}
-                        <a href="#" class="btn disabled">
-                            <div class="loader"></div> 분석 중... (약 20초)
-                        </a>
-                    {% else %}
-                        <a href="{{ url_for('refresh') }}" class="btn">분석 실행</a>
-                    {% endif %}
-                {% endif %}
-            </div>
-        </div>
-        
-        {% if market_summary and tomorrow_pred %}
-        <div class="summary-section" style="display: flex; gap: 20px; margin-bottom: 20px; flex-wrap: wrap;">
-            <!-- 증시 요약 카드 -->
-            <div class="summary-card" style="flex: 1; min-width: 300px; background: #1e1e1e; padding: 20px; border-radius: 8px; box-shadow: 0 4px 6px rgba(0,0,0,0.3); border-top: 4px solid #f39c12;">
-                <h3 style="margin-top: 0; margin-bottom: 15px; border-bottom: 1px solid #333; padding-bottom: 10px; color: #fff;">🌐 전일 증시 동향</h3>
-                <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 10px; margin-bottom: 15px;">
-                    {% if market_summary.indices %}
-                        {% for name, idx in market_summary.indices.items() %}
-                        <div style="background: #2a2a2a; padding: 10px; border-radius: 5px; text-align: center;">
-                            <div style="color: #aaa; font-size: 13px; margin-bottom: 5px;">{{ name }}</div>
-                            <div style="font-size: 16px; font-weight: bold; {% if name != 'VIX' %}{% if idx.change > 0 %}color: #4CAF50;{% elif idx.change < 0 %}color: #F44336;{% endif %}{% else %}{% if idx.price > 20 %}color: #F44336;{% elif idx.price < 15 %}color: #4CAF50;{% endif %}{% endif %}">
-                                {% if name != 'VIX' %}
-                                    {{ "%+.2f"|format(idx.change) }}%
-                                {% else %}
-                                    {{ "%.2f"|format(idx.price) }}
-                                {% endif %}
-                            </div>
-                        </div>
-                        {% endfor %}
-                    {% endif %}
-                </div>
-                
-                <h4 style="margin: 15px 0 10px 0; color: #fff;">📊 주요 섹터 등락 (Top/Bottom 3)</h4>
-                <div style="font-size: 14px; margin-bottom: 5px; background: #2a2a2a; padding: 8px; border-radius: 5px;">
-                    <span style="color: #4CAF50; font-weight:bold;">🟢 상위:</span> 
-                    {% for s in market_summary.top_sectors %}
-                        {{ s.name }}(<span style="color:#4CAF50;">{{ "%+.1f"|format(s.change) }}%</span>){% if not loop.last %}, {% endif %}
-                    {% endfor %}
-                </div>
-                <div style="font-size: 14px; margin-bottom: 15px; background: #2a2a2a; padding: 8px; border-radius: 5px;">
-                    <span style="color: #F44336; font-weight:bold;">🔴 하위:</span> 
-                    {% for s in market_summary.bottom_sectors %}
-                        {{ s.name }}(<span style="color:#F44336;">{{ "%+.1f"|format(s.change) }}%</span>){% if not loop.last %}, {% endif %}
-                    {% endfor %}
-                </div>
-                
-                <h4 style="margin: 15px 0 10px 0; color: #fff;">📅 오늘 주요 뉴스 및 경제지표 (Alpha Vantage)</h4>
-                <ul style="margin: 0; padding-left: 20px; font-size: 13px; color: #ddd; background: #2a2a2a; padding: 10px 10px 10px 30px; border-radius: 5px;">
-                    {% for ev in market_summary.today_events %}
-                        <li style="margin-bottom: 5px;">{{ ev }}</li>
-                    {% endfor %}
-                </ul>
-            </div>
-            
-            <!-- AI 내일 증시 예상 카드 -->
-            <div class="summary-card" style="flex: 1; min-width: 300px; background: #1e1e1e; padding: 20px; border-radius: 8px; box-shadow: 0 4px 6px rgba(0,0,0,0.3); border-top: 4px solid #9c27b0;">
-                <h3 style="margin-top: 0; margin-bottom: 15px; border-bottom: 1px solid #333; padding-bottom: 10px; color: #fff;">🤖 AI 내일 증시 예상</h3>
-                
-                <div style="display: flex; gap: 10px; margin-bottom: 15px;">
-                    <div style="flex: 1; background: #2a2a2a; padding: 15px; border-radius: 5px; text-align: center;">
-                        <div style="color: #4CAF50; font-size: 14px; margin-bottom: 5px;">상승 확률</div>
-                        <div style="font-size: 24px; font-weight: bold; color: #4CAF50;">{{ tomorrow_pred.probs.up }}%</div>
-                    </div>
-                    <div style="flex: 1; background: #2a2a2a; padding: 15px; border-radius: 5px; text-align: center;">
-                        <div style="color: #FFEB3B; font-size: 14px; margin-bottom: 5px;">횡보 확률</div>
-                        <div style="font-size: 24px; font-weight: bold; color: #FFEB3B;">{{ tomorrow_pred.probs.flat }}%</div>
-                    </div>
-                    <div style="flex: 1; background: #2a2a2a; padding: 15px; border-radius: 5px; text-align: center;">
-                        <div style="color: #F44336; font-size: 14px; margin-bottom: 5px;">하락 확률</div>
-                        <div style="font-size: 24px; font-weight: bold; color: #F44336;">{{ tomorrow_pred.probs.down }}%</div>
-                    </div>
-                </div>
-                
-                <h4 style="margin: 15px 0 10px 0; color: #fff;">📈 방향성 근거 지표</h4>
-                <div style="display: flex; justify-content: space-between; background: #2a2a2a; padding: 15px; border-radius: 5px; margin-bottom: 15px; font-size: 14px;">
-                    <div style="text-align: center;"><span style="color:#aaa; display:block; font-size:12px; margin-bottom:3px;">나스닥100 RSI</span> <b>{{ "%.1f"|format(tomorrow_pred.qqq_rsi) }}</b></div>
-                    <div style="text-align: center;"><span style="color:#aaa; display:block; font-size:12px; margin-bottom:3px;">나스닥100 MACD</span> <b>{{ tomorrow_pred.macd_dir }}</b></div>
-                    <div style="text-align: center;"><span style="color:#aaa; display:block; font-size:12px; margin-bottom:3px;">뉴스 감성 점수</span> <b>{{ "%.2f"|format(market_summary.news_sentiment) }}</b></div>
-                </div>
-                
-                <h4 style="margin: 15px 0 10px 0; color: #fff;">⚠️ 주요 리스크 요인</h4>
-                <ul style="margin: 0; padding-left: 20px; font-size: 14px; color: #ff9800; background: #332b1a; padding: 10px 10px 10px 30px; border-radius: 5px; border-left: 3px solid #ff9800;">
-                    {% for risk in tomorrow_pred.risks %}
-                        <li style="margin-bottom: 5px;">{{ risk }}</li>
-                    {% endfor %}
-                </ul>
-            </div>
-        </div>
-        {% endif %}
 
-        <div class="stock-grid">
-            {% for item in data %}
-            <div class="stock-card {% if '🟢' in item.entry_status %}highlight-card{% endif %}">
-                <div class="stock-header">
-                    <div class="stock-title">{{ item.ticker }}</div>
-                    <div class="stock-rank">TOP {{ loop.index }}</div>
-                </div>
-                
-                <div class="status-box">
-                    <span class="info-label" style="font-size: 14px;">진입 상태</span>
-                    <span class="info-value" style="font-size: 18px;">{{ item.entry_status }}</span>
-                </div>
-                
-                <div class="info-row">
-                    <span class="info-label">종합점수</span>
-                    <span class="info-value" style="color: #00bcd4; font-size: 18px;">{{ item.total_score | round(1) }} 점</span>
-                </div>
-                
-                <div class="section-title">가격 정보</div>
-                <div class="info-row">
-                    <span class="info-label">현재가</span>
-                    <span class="info-value">${{ "%.2f"|format(item.data.price) }}</span>
-                </div>
-                <div class="info-row">
-                    <span class="info-label">추천 매수가</span>
-                    <span class="info-value">현재가 부근 (${{ "%.2f"|format(item.buy_price) }})</span>
-                </div>
-                <div class="info-row">
-                    <span class="info-label">목표가 1차 (+10%)</span>
-                    <span class="info-value up">${{ "%.2f"|format(item.target_price_1) }}</span>
-                </div>
-                <div class="info-row">
-                    <span class="info-label">목표가 2차 (+20%)</span>
-                    <span class="info-value up">${{ "%.2f"|format(item.target_price_2) }}</span>
-                </div>
-                <div class="info-row">
-                    <span class="info-label">손절가 (-5%)</span>
-                    <span class="info-value down">${{ "%.2f"|format(item.stop_loss) }}</span>
-                </div>
-                <div class="info-row">
-                    <span class="info-label">위험:수익비</span>
-                    <span class="info-value">{{ "%.1f"|format(item.risk_reward) }}배</span>
-                </div>
-                
-                <div class="section-title">주요 기술적 지표</div>
-                <div class="info-row">
-                    <span class="info-label">Ichimoku Cloud</span>
-                    <span class="info-value">
-                        {% if item.data.is_above_cloud %}
-                            <span class="up">구름대 위 ☁️</span>
-                        {% elif item.data.is_below_cloud %}
-                            <span class="down">구름대 아래 ☁️</span>
-                        {% else %}
-                            <span class="neutral">구름대 내부 ☁️</span>
-                        {% endif %}
-                    </span>
-                </div>
-                <div class="info-row">
-                    <span class="info-label">RSI (14)</span>
-                    <span class="info-value {% if item.data.rsi < 30 %}up{% elif item.data.rsi > 70 %}down{% endif %}">{{ "%.1f"|format(item.data.rsi) }}</span>
-                </div>
-                <div class="info-row">
-                    <span class="info-label">MACD</span>
-                    <span class="info-value {% if item.data.macd_histogram > 0 %}up{% else %}down{% endif %}">{{ "%+.3f"|format(item.data.macd_histogram) }}</span>
-                </div>
-                <div class="info-row">
-                    <span class="info-label">Stochastic (K)</span>
-                    <span class="info-value {% if item.data.stoch_k < 20 %}up{% elif item.data.stoch_k > 80 %}down{% endif %}">{{ "%.1f"|format(item.data.stoch_k) }}</span>
-                </div>
-                <div class="info-row">
-                    <span class="info-label">이동평균 추세</span>
-                    <span class="info-value">{{ item.data.ma_trend }}</span>
-                </div>
-                
-                <div class="section-title">세부 신호 / 추천 이유</div>
-                <ul class="signals-list">
-                    {% for sig in item.signals %}
-                        <li>{{ sig }}</li>
-                    {% endfor %}
-                    {% for sig in item.squeeze_signals %}
-                        <li>{{ sig }}</li>
-                    {% endfor %}
-                    {% if not item.signals and not item.squeeze_signals %}
-                        <li>특별한 신호 없음</li>
-                    {% endif %}
-                </ul>
+<div class="header">
+    <div class="header-inner">
+        <div class="logo">
+            <div class="logo-icon">📈</div>
+            <div class="logo-text">
+                <h1>Long-Term Investment Analyzer</h1>
+                <p>Buffett · Graham · Lynch · Fisher · Greenblatt · Templeton</p>
             </div>
-            {% else %}
-                <div class="empty-state">
-                    {% if is_analyzing %}
-                        <h3>데이터를 분석하고 있습니다...</h3>
-                        <p>분석 완료까지 잠시만 기다려주세요.<br>이 페이지는 5초마다 자동 새로고침됩니다.</p>
-                    {% else %}
-                        <h3>오늘 진입 가능 종목 없음</h3>
-                        {% if is_historical %}
-                            <p>선택하신 날짜에 저장된 리포트가 없거나 진입 가능한 추천 종목이 없습니다.</p>
-                        {% else %}
-                            <p>현재 전략(🟢 진입 가능) 기준에 부합하는 종목이 발견되지 않았습니다.</p>
-                        {% endif %}
-                    {% endif %}
-                </div>
-            {% endfor %}
+        </div>
+        <div class="header-controls">
+            <span class="last-update">마지막 분석: {{ last_update }}</span>
+            <form action="/" method="get" style="margin:0;">
+                <input type="date" name="date" class="date-input"
+                    onchange="this.form.submit()"
+                    value="{{ selected_date }}"
+                    {% if available_dates %}max="{{ available_dates[0] }}"{% endif %}>
+            </form>
+            {% if is_historical %}
+                <a href="/" class="btn btn-ghost">실시간 보기</a>
+            {% endif %}
+            {% if not is_historical %}
+                {% if is_analyzing %}
+                    <span class="btn btn-disabled">
+                        <span class="spinner"></span> 분석 중... (약 10분)
+                    </span>
+                {% else %}
+                    <a href="/refresh" class="btn btn-primary" id="analyze-btn">
+                        ⚡ 분석 실행
+                    </a>
+                {% endif %}
+            {% endif %}
         </div>
     </div>
-    {% if is_analyzing and not is_historical %}
-    <script>
-        setTimeout(function() {
-            window.location.reload(1);
-        }, 5000);
-    </script>
+</div>
+
+<div class="main">
+
+    <!-- Stats -->
+    {% if data %}
+    <div class="stats-row">
+        <div class="stat-card">
+            <div class="val">{{ data|length }}</div>
+            <div class="lbl">분석 종목 수</div>
+        </div>
+        <div class="stat-card">
+            <div class="val" style="-webkit-text-fill-color: #22c55e;">{{ data|selectattr('signal','contains','강력')|list|length }}</div>
+            <div class="lbl">🟢 강력 매수</div>
+        </div>
+        <div class="stat-card">
+            <div class="val" style="-webkit-text-fill-color: #06b6d4;">{{ data|selectattr('signal','contains','🟩')|list|length }}</div>
+            <div class="lbl">🟩 매수</div>
+        </div>
+        <div class="stat-card">
+            <div class="val" style="-webkit-text-fill-color: #eab308;">{{ data|selectattr('signal','contains','관망')|list|length }}</div>
+            <div class="lbl">🟡 관망</div>
+        </div>
+        <div class="stat-card">
+            <div class="val" style="-webkit-text-fill-color: #ef4444;">{{ data|selectattr('signal','contains','매도')|list|length }}</div>
+            <div class="lbl">🔴 매도/고려</div>
+        </div>
+        {% if analyzed_at %}
+        <div class="stat-card">
+            <div class="val" style="font-size:13px; -webkit-text-fill-color: #94a3b8;">{{ analyzed_at }}</div>
+            <div class="lbl">분석 시각</div>
+        </div>
+        {% endif %}
+    </div>
     {% endif %}
+
+    <!-- Filters -->
+    <div class="filter-row">
+        <button class="filter-btn active" data-signal="all" onclick="filterCards('all', this)">전체</button>
+        <button class="filter-btn" data-signal="강력" onclick="filterCards('강력', this)">🟢 강력 매수</button>
+        <button class="filter-btn" data-signal="매수" onclick="filterCards('매수', this)">🟩 매수</button>
+        <button class="filter-btn" data-signal="관망" onclick="filterCards('관망', this)">🟡 관망</button>
+        <button class="filter-btn" data-signal="고려" onclick="filterCards('고려', this)">🟠 매도 고려</button>
+        <button class="filter-btn" data-signal="매도" onclick="filterCards('매도', this)">🔴 매도</button>
+        <input type="text" class="search-input" placeholder="🔍 종목 검색 (AAPL, 애플...)" oninput="searchCards(this.value)" id="search-input">
+    </div>
+
+    <!-- Cards -->
+    <div class="stock-grid" id="card-grid">
+        {% for item in data %}
+        {% set sig_key = '강력' if '강력' in item.signal else ('매수' if '🟩' in item.signal else ('관망' if '관망' in item.signal else ('고려' if '고려' in item.signal else '매도'))) %}
+        {% set sc = item.total_score %}
+        {% set ring_color = '#22c55e' if sc >= 72 else ('#06b6d4' if sc >= 58 else ('#eab308' if sc >= 45 else ('#f97316' if sc >= 30 else '#ef4444'))) %}
+        <div class="stock-card signal-{{ sig_key }}"
+             data-signal="{{ sig_key }}"
+             data-ticker="{{ item.ticker }}"
+             data-name="{{ item.name }}">
+
+            <div class="rank-badge">{{ loop.index }}</div>
+
+            <!-- Head -->
+            <div class="card-head">
+                <div>
+                    <div class="card-ticker">{{ item.ticker }}</div>
+                    <div class="card-name">{{ item.name }}</div>
+                </div>
+                <div class="card-price">
+                    <div class="price">{{ "%.2f"|format(item.price) }}</div>
+                    <div class="currency">{{ item.currency }}</div>
+                </div>
+            </div>
+
+            <!-- Signal -->
+            <div class="signal-badge sig-{{ sig_key }}">{{ item.signal }}</div>
+
+            <!-- Score ring + bars -->
+            <div class="score-row">
+                <div class="score-ring" style="background: conic-gradient({{ ring_color }} {{ (sc/100*360)|int }}deg, rgba(255,255,255,0.06) 0deg);">
+                    <div class="score-ring-inner">
+                        <span style="font-size:13px; font-weight:800; color:{{ ring_color }};">{{ sc|round(0)|int }}</span>
+                    </div>
+                </div>
+                <div class="score-bars">
+                    {% set bars = [
+                        ('버핏', item.score_buffett),
+                        ('그레이엄', item.score_graham),
+                        ('린치', item.score_lynch),
+                        ('피셔', item.score_fisher),
+                        ('그린블라트', item.score_greenblatt),
+                        ('템플턴', item.score_templeton),
+                    ] %}
+                    {% for lbl, val in bars %}
+                    {% set bc = '#22c55e' if val >= 70 else ('#eab308' if val >= 45 else '#ef4444') %}
+                    <div class="score-bar-row">
+                        <span class="score-bar-label">{{ lbl }}</span>
+                        <div class="score-bar-track">
+                            <div class="score-bar-fill" style="width:{{ val }}%; background:{{ bc }};"></div>
+                        </div>
+                        <span class="score-bar-val" style="color:{{ bc }};">{{ val|round(0)|int }}</span>
+                    </div>
+                    {% endfor %}
+                </div>
+            </div>
+
+            <!-- Key Metrics -->
+            <div class="metrics-grid">
+                <div class="metric-item">
+                    <div class="metric-label">P/E</div>
+                    <div class="metric-value {% if item.pe_ratio is none %}metric-na{% endif %}">
+                        {% if item.pe_ratio %}{{ "%.1f"|format(item.pe_ratio) }}{% else %}N/A{% endif %}
+                    </div>
+                </div>
+                <div class="metric-item">
+                    <div class="metric-label">P/B</div>
+                    <div class="metric-value {% if item.pb_ratio is none %}metric-na{% endif %}">
+                        {% if item.pb_ratio %}{{ "%.2f"|format(item.pb_ratio) }}{% else %}N/A{% endif %}
+                    </div>
+                </div>
+                <div class="metric-item">
+                    <div class="metric-label">ROE</div>
+                    <div class="metric-value {% if item.roe is none %}metric-na{% endif %}">
+                        {% if item.roe %}{{ "%.1f"|format(item.roe) }}%{% else %}N/A{% endif %}
+                    </div>
+                </div>
+                <div class="metric-item">
+                    <div class="metric-label">순이익률</div>
+                    <div class="metric-value {% if item.net_margin is none %}metric-na{% endif %}">
+                        {% if item.net_margin %}{{ "%.1f"|format(item.net_margin) }}%{% else %}N/A{% endif %}
+                    </div>
+                </div>
+                <div class="metric-item">
+                    <div class="metric-label">RSI</div>
+                    <div class="metric-value {% if item.rsi is none %}metric-na{% endif %}
+                        {% if item.rsi and item.rsi < 30 %}rsi-low{% elif item.rsi and item.rsi > 70 %}rsi-high{% endif %}">
+                        {% if item.rsi %}{{ "%.0f"|format(item.rsi) }}{% else %}N/A{% endif %}
+                    </div>
+                </div>
+                <div class="metric-item">
+                    <div class="metric-label">PEG</div>
+                    <div class="metric-value {% if item.peg_ratio is none %}metric-na{% endif %}">
+                        {% if item.peg_ratio %}{{ "%.2f"|format(item.peg_ratio) }}{% else %}N/A{% endif %}
+                    </div>
+                </div>
+            </div>
+
+            <!-- Top reasons -->
+            {% set pos_reasons = [] %}
+            {% set neg_reasons = [] %}
+            {% for r in item.signal_reason %}
+                {% if r.startswith('✅') %}{% if pos_reasons.append(r) %}{% endif %}{% endif %}
+                {% if r.startswith('❌') %}{% if neg_reasons.append(r) %}{% endif %}{% endif %}
+            {% endfor %}
+            {% if pos_reasons or neg_reasons %}
+            <div class="reasons-list">
+                {% for r in pos_reasons[:3] %}
+                <div class="reason-item pos">{{ r }}</div>
+                {% endfor %}
+                {% for r in neg_reasons[:2] %}
+                <div class="reason-item neg">{{ r }}</div>
+                {% endfor %}
+            </div>
+            {% endif %}
+
+            <!-- Warnings -->
+            {% if item.warnings %}
+            <div class="warnings-block">
+                {% for w in item.warnings %}
+                <div class="w-item">{{ w }}</div>
+                {% endfor %}
+            </div>
+            {% endif %}
+        </div>
+        {% else %}
+        <div class="empty-state">
+            {% if is_analyzing %}
+                <h3>⏳ S&P 500 전 종목 분석 중...</h3>
+                <p>약 500개 종목을 분석하고 있습니다.<br>완료까지 약 5~10분 소요됩니다.<br>이 페이지는 10초마다 자동 새로고침됩니다.</p>
+            {% else %}
+                <h3>📊 분석 결과 없음</h3>
+                <p>{% if is_historical %}선택한 날짜의 분석 데이터가 없습니다.{% else %}우측 상단 <strong>⚡ 분석 실행</strong> 버튼을 눌러주세요.{% endif %}</p>
+            {% endif %}
+        </div>
+        {% endfor %}
+    </div>
+
+    <div style="text-align:center; margin-top: 40px; color: var(--muted); font-size: 12px; line-height: 1.8;">
+        ※ 본 서비스는 공개 재무 데이터 기반 참고용이며, 투자 권유가 아닙니다.<br>
+        ※ Powered by yfinance · Buffett · Graham · Lynch · Fisher · Greenblatt · Templeton
+    </div>
+</div>
+
+{% if is_analyzing and not is_historical %}
+<script>setTimeout(() => location.reload(), 10000);</script>
+{% endif %}
+
+<script>
+function filterCards(sig, btn) {
+    document.querySelectorAll('.filter-btn').forEach(b => b.classList.remove('active'));
+    btn.classList.add('active');
+
+    const searchVal = (document.getElementById('search-input').value || '').toLowerCase();
+    document.querySelectorAll('.stock-card').forEach(card => {
+        const matchSig = sig === 'all' || card.dataset.signal === sig;
+        const matchSearch = !searchVal ||
+            card.dataset.ticker.toLowerCase().includes(searchVal) ||
+            card.dataset.name.toLowerCase().includes(searchVal);
+        card.classList.toggle('hidden', !(matchSig && matchSearch));
+    });
+}
+
+function searchCards(val) {
+    const activeSig = document.querySelector('.filter-btn.active')?.dataset.signal || 'all';
+    const lv = val.toLowerCase();
+    document.querySelectorAll('.stock-card').forEach(card => {
+        const matchSig = activeSig === 'all' || card.dataset.signal === activeSig;
+        const matchSearch = !lv ||
+            card.dataset.ticker.toLowerCase().includes(lv) ||
+            card.dataset.name.toLowerCase().includes(lv);
+        card.classList.toggle('hidden', !(matchSig && matchSearch));
+    });
+}
+
+// Animate bars on load
+window.addEventListener('DOMContentLoaded', () => {
+    document.querySelectorAll('.score-bar-fill').forEach(bar => {
+        const w = bar.style.width;
+        bar.style.width = '0';
+        setTimeout(() => { bar.style.width = w; }, 100);
+    });
+});
+</script>
 </body>
 </html>
 """
 
+
 def run_analysis_background():
     try:
-        # analyze now returns a dict mapping market_summary, tomorrow_pred, and top10
-        save_data = analyze(send_telegram=True)
+        save_data = analyze()
         app.config['CACHED_DATA'] = save_data
         app.config['LAST_UPDATE'] = datetime.now().strftime('%Y-%m-%d %H:%M:%S')
     except Exception as e:
-        print(f"Error during background analysis: {e}")
+        print(f"Background analysis error: {e}")
     finally:
         app.config['IS_ANALYZING'] = False
+
 
 @app.route('/')
 def index():
     selected_date = request.args.get('date', '')
     available_dates = get_available_dates()
-    
-    market_summary = None
-    tomorrow_pred = None
-    display_data = []
-    
-    # 만약 특정 날짜가 선택되었다면 해당 데이터를 보여준다
+
+    data = []
+    analyzed_at = None
+    is_historical = False
+
     if selected_date and selected_date in available_dates:
-        hist_data = get_history_data(selected_date)
-        last_update = f"{selected_date} 과거 데이터"
         is_historical = True
-        
-        if isinstance(hist_data, list):
-            display_data = hist_data
-        elif isinstance(hist_data, dict):
-            display_data = hist_data.get('top10', [])
-            market_summary = hist_data.get('market_summary')
-            tomorrow_pred = hist_data.get('tomorrow_pred')
-            
-        if display_data:
-            display_data.sort(key=lambda x: ('🟢' in str(x.get('entry_status','')), x.get('total_score', 0)), reverse=True)
-            
+        hist = get_history_data(selected_date)
+        last_update = f"{selected_date} 과거 데이터"
+        if isinstance(hist, dict):
+            data = hist.get('results', [])
+            analyzed_at = hist.get('analyzed_at')
     else:
-        # 실시간 모드
-        is_historical = False
-        
-        cached_data = app.config['CACHED_DATA']
-        if isinstance(cached_data, list):
-            display_data = cached_data
-        elif isinstance(cached_data, dict):
-            display_data = cached_data.get('top10', [])
-            market_summary = cached_data.get('market_summary')
-            tomorrow_pred = cached_data.get('tomorrow_pred')
-            
-        if display_data:
-            display_data.sort(key=lambda x: ('🟢' in str(x.get('entry_status','')), x.get('total_score', 0)), reverse=True)
-            
+        cached = app.config['CACHED_DATA']
+        if isinstance(cached, dict):
+            data = cached.get('results', [])
+            analyzed_at = cached.get('analyzed_at')
         last_update = app.config['LAST_UPDATE']
 
-    max_date = available_dates[0] if available_dates else datetime.now().strftime('%Y-%m-%d')
     return render_template_string(
-        HTML_TEMPLATE, 
-        data=display_data,
-        market_summary=market_summary,
-        tomorrow_pred=tomorrow_pred,
+        HTML_TEMPLATE,
+        data=data,
+        analyzed_at=analyzed_at,
         last_update=last_update,
         is_analyzing=app.config['IS_ANALYZING'],
         available_dates=available_dates,
         selected_date=selected_date,
         is_historical=is_historical,
-        max_date=max_date
     )
+
 
 @app.route('/analyze')
 @app.route('/refresh')
 def refresh():
     if not app.config['IS_ANALYZING']:
         app.config['IS_ANALYZING'] = True
-        thread = threading.Thread(target=run_analysis_background)
-        thread.start()
+        t = threading.Thread(target=run_analysis_background)
+        t.start()
     return redirect(url_for('index'))
+
 
 if __name__ == '__main__':
     port = int(os.environ.get('PORT', 5000))
