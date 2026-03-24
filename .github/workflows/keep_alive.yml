@@ -2,14 +2,24 @@ name: Keep Alive
 
 on:
   schedule:
-    - cron: '*/5 * * * *'
+    - cron: '0 6 * * *'   # 한국시간 15:00
+    - cron: '0 12 * * *'  # 한국시간 21:00
   workflow_dispatch:
 
 jobs:
-  ping:
+  keep_alive:
     runs-on: ubuntu-latest
     steps:
-      - name: Ping Render Server
+      - name: Checkout
+        uses: actions/checkout@v3
+        with:
+          token: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Auto commit
         run: |
-          curl -s https://stock-bot-55cw.onrender.com
-          echo "서버 깨우기 완료!"
+          git config --global user.email "action@github.com"
+          git config --global user.name "GitHub Action"
+          echo "$(date)" > keep_alive.txt
+          git add keep_alive.txt
+          git commit -m "Keep alive: $(date)"
+          git push
