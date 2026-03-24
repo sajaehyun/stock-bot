@@ -8,18 +8,99 @@ from datetime import datetime
 from bot import analyze
 
 app = Flask(__name__)
-app.config['CACHED_DATA'] = {}
-app.config['LAST_UPDATE'] = "분석된 적 없음"
-app.config['IS_ANALYZING'] = False
-app.config['LAST_ERROR'] = None
 
-_analysis_lock = threading.Lock()
+# ─── 전역 상수 ──────────────────────────────────────────────
+ENTRY_EMOJI_MAP = {'🟢': 'green', '⏳': 'wait', '❌': 'stop'}
 
-@app.template_filter('contains')
-def contains_filter(value, substring):
-    if not value or not isinstance(value, str):
-        return False
-    return substring in value
+# ─── 상태 관리 클래스 ──────────────────────────────────────────
+class AppState:
+    def __init__(self):
+        # 원본 및 가공 데이터
+        self.processed_results = []
+        self.green_count = 0
+        self.wait_count = 0
+        
+        # 메타데이터
+        self.last_update = "분석된 적 없음"
+        self.analyzed_at = "-"
+        
+        # 상태 제어
+        self.is_analyzing = False
+        self.last_error = None
+        
+        # 동기화
+        self.lock = threading.RLock()
+
+    def _preprocess(self, data_raw):
+        """데이터 가공(이모지 맵핑 및 통계) - 내부용"""
+        results = []
+        g_cnt = 0
+        w_cnt = 0
+        for item in data_raw:
+            p = dict(item)  # 얕은 복사 (템플릿 읽기 전용으로 충분)
+            entry_str = p.get('entry', '')
+            p['entry_key'] = 'unknown'
+            
+            for emoji, key in ENTRY_EMOJI_MAP.items():
+                if emoji in entry_str:
+                    p['entry_key'] = key
+                    if emoji == '🟢': g_cnt += 1
+                    elif emoji == '⏳': w_cnt += 1
+                    break
+            results.append(p)
+        return results, g_cnt, w_cnt
+
+    def update_results(self, data_dict):
+        """분석 완료 후 스레드 세이프하게 데이터 업데이트"""
+        with self.lock:
+            results_raw = data_dict.get('results', [])
+            self.processed_results, self.green_count, self.wait_count = self._preprocess(results_raw)
+            self.last_update = datetime.now().strftime('%Y-%m-%d %H:%M:%S')
+            self.analyzed_at = results_raw[0].get('analyzed_at', '-') if results_raw else "-"
+            self.last_error = None
+
+    def load_history(self, history_json):
+        """히스토리 데이터 로드 및 가공"""
+        with self.lock:
+            results_raw = history_json.get('results', [])
+            self.processed_results, self.green_count, self.wait_count = self._preprocess(results_raw)
+            self.last_update = history_json.get('analyzed_at', '과거 기록')
+            self.analyzed_at = results_raw[0].get('analyzed_at', '-') if results_raw else "-"
+            self.last_error = None
+
+    def start_analyzing(self):
+        """락을 보유한 상태에서 상태 전환 (중복 실행 방지)"""
+        with self.lock:
+            if self.is_analyzing:
+                return False
+            self.is_analyzing = True
+            self.last_error = None
+            return True
+
+    def set_error(self, error_msg):
+        with self.lock:
+            self.last_error = error_msg
+
+    def set_analyzing(self, status):
+        with self.lock:
+            self.is_analyzing = status
+
+    def get_snapshot(self):
+        """UI 렌더링을 위한 데이터 스냅샷 획득"""
+        with self.lock:
+            return {
+                'data': self.processed_results,
+                'green_count': self.green_count,
+                'wait_count': self.wait_count,
+                'last_update': self.last_update,
+                'analyzed_at': self.analyzed_at,
+                'is_analyzing': self.is_analyzing,
+                'last_error': self.last_error
+            }
+
+state = AppState()
+
+# ─── 헬퍼 함수 ────────────────────────────────────────────────
 
 def get_available_dates():
     history_dir = "history"
@@ -137,13 +218,6 @@ HTML_TEMPLATE = """
         .stat-card .val { font-size: 26px; font-weight: 800; color: var(--accent); }
         .stat-card .lbl { font-size: 11px; color: var(--muted); margin-top: 4px; }
 
-        /* FILTERS */
-        .filter-row { display: flex; align-items: center; gap: 12px; margin-bottom: 24px; }
-        .search-input {
-            padding: 9px 14px; background: var(--bg3); border: 1px solid var(--border);
-            border-radius: 8px; color: var(--text); font-size: 13px; outline: none; min-width: 240px;
-        }
-
         /* GRID */
         .stock-grid {
             display: grid; grid-template-columns: repeat(auto-fill, minmax(380px, 1fr)); gap: 20px;
@@ -161,14 +235,16 @@ HTML_TEMPLATE = """
         .card-price .change { font-size: 13px; font-weight: 600; }
         .change.pos { color: var(--green); }
         .change.neg { color: var(--red); }
+        .change.zero { color: var(--muted); }
 
         .entry-badge {
             display: inline-block; padding: 5px 12px; border-radius: 20px;
             font-size: 12px; font-weight: 700; margin-bottom: 16px;
         }
-        .entry-🟢 { background: rgba(34,197,94,0.1); color: var(--green); border: 1px solid rgba(34,197,94,0.2); }
-        .entry-⏳ { background: rgba(234,179,8,0.1); color: var(--yellow); border: 1px solid rgba(234, 179, 8, 0.2); }
-        .entry-❌ { background: rgba(239,68,68,0.1); color: var(--red); border: 1px solid rgba(239, 68, 68, 0.2); }
+        .entry-green { background: rgba(34,197,94,0.1); color: var(--green); border: 1px solid rgba(34,197,94,0.2); }
+        .entry-wait  { background: rgba(234,179,8,0.1);  color: var(--yellow); border: 1px solid rgba(234,179,8,0.2); }
+        .entry-stop  { background: rgba(239,68,68,0.1);  color: var(--red);    border: 1px solid rgba(239,68,68,0.2); }
+        .entry-unknown { background: rgba(255,255,255,0.05); color: var(--muted); border: 1px solid var(--border); }
 
         .metrics-grid {
             display: grid; grid-template-columns: repeat(3, 1fr); gap: 10px; margin-bottom: 16px;
@@ -217,7 +293,9 @@ HTML_TEMPLATE = """
             {% if is_analyzing %}
                 <span class="btn btn-ghost" id="analyzing-status">⏳ 분석 중...</span>
             {% else %}
-                <a href="/refresh" class="btn btn-primary">⚡ 분석 실행</a>
+                <form action="/refresh" method="POST" style="margin: 0;">
+                    <button type="submit" class="btn btn-primary">⚡ 분석 실행</button>
+                </form>
             {% endif %}
         </div>
     </div>
@@ -237,15 +315,15 @@ HTML_TEMPLATE = """
             <div class="lbl">분석 종목</div>
         </div>
         <div class="stat-card">
-            <div class="val" style="color:var(--green)">{{ data|selectattr('entry', 'contains', '🟢')|list|length }}</div>
+            <div class="val" style="color:var(--green)">{{ green_count }}</div>
             <div class="lbl">🟢 진입 가능</div>
         </div>
         <div class="stat-card">
-            <div class="val" style="color:var(--yellow)">{{ data|selectattr('entry', 'contains', '⏳')|list|length }}</div>
+            <div class="val" style="color:var(--yellow)">{{ wait_count }}</div>
             <div class="lbl">⏳ 대기</div>
         </div>
         <div class="stat-card">
-            <div class="val" style="color:var(--muted)">{{ data[0].analyzed_at if data else '-' }}</div>
+            <div class="val" style="color:var(--muted)">{{ analyzed_at }}</div>
             <div class="lbl">마지막 분석</div>
         </div>
     </div>
@@ -256,23 +334,23 @@ HTML_TEMPLATE = """
         <div class="stock-card">
             <div class="card-head">
                 <div>
-                    <div class="card-ticker">{{ item.ticker }}</div>
-                    <div style="font-size:12px; color:var(--muted)">{{ item.company }}</div>
+                    <div class="card-ticker">{{ item['ticker'] }}</div>
+                    <div style="font-size:12px; color:var(--muted)">{{ item['company'] }}</div>
                 </div>
                 <div class="card-price">
-                    <div class="price">${{ "%.2f"|format(item.price) }}</div>
-                    <div class="change {{ 'pos' if item.change > 0 else 'neg' }}">
-                        {{ "%+.2f"|format(item.change) }}%
+                    <div class="price">${{ "%.2f"|format(item['price']) }}</div>
+                    <div class="change {{ 'pos' if item['change'] > 0 else ('neg' if item['change'] < 0 else 'zero') }}">
+                        {{ "%+.2f"|format(item['change']) }}%
                     </div>
                 </div>
             </div>
 
-            <div class="entry-badge entry-{{ item.entry[:2] }}">{{ item.entry }}</div>
+            <div class="entry-badge entry-{{ item['entry_key'] }}">{{ item['entry'] }}</div>
 
             <div class="score-row">
-                <div class="score-val">{{ item.score }}</div>
+                <div class="score-val">{{ item['score'] }}</div>
                 <div class="score-bar">
-                    <div class="score-fill" style="width: {{ item.score }}%"></div>
+                    <div class="score-fill" style="width: {{ [item['score'], 100]|min }}%"></div>
                 </div>
                 <div style="font-size:12px; color:var(--muted)">PTS</div>
             </div>
@@ -280,40 +358,40 @@ HTML_TEMPLATE = """
             <div class="metrics-grid">
                 <div class="metric">
                     <div class="metric-lbl">RSI(14)</div>
-                    <div class="metric-val" style="color: {{ 'var(--red)' if item.rsi > 70 else ('var(--green)' if item.rsi < 30 else 'inherit') }}">{{ "%.1f"|format(item.rsi) }}</div>
+                    <div class="metric-val" style="color: {{ 'var(--red)' if item['rsi'] > 70 else ('var(--green)' if item['rsi'] < 30 else 'inherit') }}">{{ "%.1f"|format(item['rsi']) }}</div>
                 </div>
                 <div class="metric">
                     <div class="metric-lbl">MACD Hist</div>
-                    <div class="metric-val">{{ "%.3f"|format(item.macd_histogram) }}</div>
+                    <div class="metric-val">{{ "%.3f"|format(item['macd_histogram']) }}</div>
                 </div>
                 <div class="metric">
                     <div class="metric-lbl">MA 20</div>
-                    <div class="metric-val">{{ 'UP 🟢' if item.price > item.ma20 else 'DOWN 🔴' }}</div>
+                    <div class="metric-val">{{ 'UP 🟢' if item['price'] > item['ma20'] else 'DOWN 🔴' }}</div>
                 </div>
                 <div class="metric">
                     <div class="metric-lbl">V-Ratio</div>
-                    <div class="metric-val">{{ "%.0f"|format(item.vol_ratio) }}%</div>
+                    <div class="metric-val">{{ "%.0f"|format(item['vol_ratio']) }}%</div>
                 </div>
                 <div class="metric">
                     <div class="metric-lbl">Cloud</div>
-                    <div class="metric-val">{{ 'ABOVE 🟢' if item.is_above_cloud else ('BELOW 🔴' if item.is_below_cloud else 'INSIDE 🟡') }}</div>
+                    <div class="metric-val">{{ 'ABOVE 🟢' if item['is_above_cloud'] else ('BELOW 🔴' if item['is_below_cloud'] else 'INSIDE 🟡') }}</div>
                 </div>
                 <div class="metric">
                     <div class="metric-lbl">MA Trend</div>
-                    <div class="metric-val" style="font-size:11px">{{ item.ma_trend }}</div>
+                    <div class="metric-val" style="font-size:11px">{{ item['ma_trend'] }}</div>
                 </div>
             </div>
 
             <div class="signals">
-                {% for sig in item.signals %}
+                {% for sig in item['signals'] %}
                     <span class="sig-tag">{{ sig }}</span>
                 {% endfor %}
             </div>
 
             <div class="targets">
-                <div class="target-box">T1 <b>${{ "%.2f"|format(item.target1) }}</b></div>
-                <div class="target-box">T2 <b>${{ "%.2f"|format(item.target2) }}</b></div>
-                <div class="target-box sl-box">SL <b>${{ "%.2f"|format(item.stop_loss) }}</b></div>
+                <div class="target-box">T1 <b>${{ "%.2f"|format(item['target1']) }}</b></div>
+                <div class="target-box">T2 <b>${{ "%.2f"|format(item['target2']) }}</b></div>
+                <div class="target-box sl-box">SL <b>${{ "%.2f"|format(item['stop_loss']) }}</b></div>
             </div>
         </div>
         {% else %}
@@ -329,8 +407,9 @@ HTML_TEMPLATE = """
 async function pollStatus() {
     try {
         const res = await fetch('/status');
-        const data = await res.json();
-        if (!data.is_analyzing) {
+        const d = await res.json();
+        // 분석이 끝나거나 에러가 발생한 경우 새로고침
+        if (!d.is_analyzing) {
             location.reload();
         } else {
             setTimeout(pollStatus, 3000);
@@ -351,50 +430,48 @@ pollStatus();
 
 def run_analysis_background():
     try:
-        save_data = analyze()
-        app.config['CACHED_DATA'] = save_data
-        app.config['LAST_UPDATE'] = datetime.now().strftime('%Y-%m-%d %H:%M:%S')
-        app.config['LAST_ERROR'] = None
+        results_data = analyze()
+        state.update_results(results_data)
     except Exception as e:
         print(f"Background analysis error: {e}")
-        app.config['LAST_ERROR'] = str(e)
+        state.set_error(str(e))
     finally:
-        app.config['IS_ANALYZING'] = False
+        state.set_analyzing(False)
 
 
 @app.route('/')
 def index():
-    data = []
-    cached = app.config['CACHED_DATA']
-    if isinstance(cached, dict):
-        data = cached.get('results', [])
+    snapshot = state.get_snapshot()
     
-    if not data:
+    # 데이터가 비어있다면 마지막 히스토리 로드 시도
+    if not snapshot['data']:
         available = get_available_dates()
         if available:
             hist = get_history_data(available[0])
-            if hist: data = hist.get('results', [])
+            if hist:
+                state.load_history(hist)
+                snapshot = state.get_snapshot()
 
     return render_template_string(
         HTML_TEMPLATE,
-        data=data,
-        last_update=app.config['LAST_UPDATE'],
-        is_analyzing=app.config['IS_ANALYZING'],
-        last_error=app.config['LAST_ERROR']
+        **snapshot
     )
 
 @app.route('/status')
 def status():
-    return jsonify({'is_analyzing': app.config['IS_ANALYZING']})
+    # snapshot 대신 필요한 정보만 스레드 세이프하게 획득
+    with state.lock:
+        return jsonify({
+            'is_analyzing': state.is_analyzing,
+            'last_error': state.last_error
+        })
 
-@app.route('/refresh')
+@app.route('/refresh', methods=['POST'])
 def refresh():
-    with _analysis_lock:
-        if not app.config['IS_ANALYZING']:
-            app.config['IS_ANALYZING'] = True
-            app.config['LAST_ERROR'] = None
-            t = threading.Thread(target=run_analysis_background, daemon=True)
-            t.start()
+    # start_analyzing 내부에서 락을 활용하므로 안전함
+    if state.start_analyzing():
+        t = threading.Thread(target=run_analysis_background, daemon=True)
+        t.start()
     return redirect(url_for('index'))
 
 
