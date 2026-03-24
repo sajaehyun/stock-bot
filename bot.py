@@ -19,7 +19,7 @@ TELEGRAM_TOKEN = os.getenv("TELEGRAM_TOKEN")
 CHAT_ID        = os.getenv("CHAT_ID")
 
 # 분석 설정
-MAX_WORKERS = 5  # yfinance Rate Limit 방지를 위해 하향 조정
+MAX_WORKERS = 5
 MAX_FINVIZ_TICKERS = 30
 
 # ─────────────────────────────────────────────
@@ -28,8 +28,16 @@ MAX_FINVIZ_TICKERS = 30
 
 def safe_float(val, default=0.0):
     try:
-        if pd.isna(val): return default
-        return float(val)
+        # 시리즈나 배열인 경우 첫 번째 요소 추출
+        if hasattr(val, 'iloc'):
+            val = val.iloc[0]
+        elif hasattr(val, '__iter__') and not isinstance(val, (str, dict)):
+            val = val[0]
+            
+        v = float(val)
+        if np.isnan(v) or np.isinf(v):
+            return default
+        return v
     except:
         return default
 
@@ -51,8 +59,16 @@ def fetch_finviz_sp500_gainers():
     print("Finviz에서 S&P 500 상승 종목 수집 중...")
     try:
         foverview = Overview()
-        # S&P 500 필터 및 당일 상승률 내림차순 정렬
-        foverview.set_filter(filters_dict={'Index': 'S&P 500', 'Order': 'Change Desc'})
+        # 버전 호환성을 위한 하이브리드 필터 설정
+        filter_cfg = {'Index': 'S&P 500', 'Order': 'Change Desc'}
+        try:
+            foverview.set_filter(filters_dict=filter_cfg)
+        except (TypeError, Exception):
+            try:
+                foverview.set_filter(filter_dict=filter_cfg)
+            except:
+                print("Finviz 필터 적용 실패. 전체 데이터를 사용합니다.")
+                
         df = foverview.screener_view()
         
         if df is None or df.empty:
@@ -60,13 +76,10 @@ def fetch_finviz_sp500_gainers():
             return []
             
         tickers_data = []
-        # 상위 30개 종목 추출
         for _, row in df.head(MAX_FINVIZ_TICKERS).iterrows():
             try:
-                # finvizfinance 결과 컬럼명 대응
                 ticker = row.get('Ticker', '')
                 company = row.get('Company', '')
-                # 'Price'와 'Change' 백분율 추출
                 price = safe_float(row.get('Price'))
                 change_str = str(row.get('Change', '0%')).replace('%', '')
                 change = safe_float(change_str)
@@ -92,30 +105,30 @@ def fetch_finviz_sp500_gainers():
 # ─────────────────────────────────────────────
 
 def compute_indicators(ticker):
-    """yfinance 데이터를 사용해 기술 지표 계산 (Retry 로직 포함)"""
+    """yfinance 데이터를 사용해 기술 지표 계산 (Retry와 컬럼 대응 포함)"""
     df = None
     for attempt in range(3):
         try:
-            # yfinance 0.2.x+ 대응을 위해 데이터 다운로드
-            df = yf.download(ticker, period="60d", interval="1d", progress=False, auto_adjust=True)
-            if df is not None and len(df) >= 40: # 이치모쿠 kijun(26), rolling(52) 대응 가능하도록 충분히 확보
+            # MA200을 위해 최소 250일 이상의 데이터 권장
+            raw = yf.download(ticker, period="2y", interval="1d", progress=False, auto_adjust=True)
+            if raw is not None and len(raw) >= 200:
+                df = raw
                 break
-            time.sleep(1)
         except Exception as e:
-            time.sleep(2 * (attempt + 1))
+            print(f"[{ticker}] 다운로드 실패 ({attempt+1}/3): {e}")
+        time.sleep(2 * (attempt + 1))
             
-    if df is None or len(df) < 20: 
+    if df is None or len(df) < 52: 
         return None
 
     try:
-        # MultiIndex 컬럼 제거 (yfinance 0.2.x+ 대응)
-        if isinstance(df.columns, pd.MultiIndex):
+        # MultiIndex 컬럼 제거
+        if hasattr(df.columns, 'get_level_values') and isinstance(df.columns, pd.MultiIndex):
             df.columns = df.columns.get_level_values(0)
             
         close = df["Close"].squeeze()
-        if isinstance(close, pd.DataFrame):
-            close = close.iloc[:, 0]
-            
+        if isinstance(close, pd.DataFrame): close = close.iloc[:, 0]
+        
         high = df["High"].squeeze()
         if isinstance(high, pd.DataFrame): high = high.iloc[:, 0]
         
@@ -127,7 +140,7 @@ def compute_indicators(ticker):
 
         curr_price = safe_float(close.iloc[-1])
         prev_price = safe_float(close.iloc[-2]) if len(close) > 1 else curr_price
-        change_1d = ((curr_price - prev_price) / prev_price * 100) if prev_price != 0 else 0
+        change_1d = (curr_price - prev_price) / prev_price * 100 if prev_price != 0 else 0
 
         # RSI (14)
         delta = close.diff()
@@ -145,9 +158,21 @@ def compute_indicators(ticker):
         macd_hist = macd_line - signal_line
         curr_macd_hist = safe_float(macd_hist.iloc[-1])
 
-        # Moving Averages
+        # Moving Averages (Trend)
         ma20 = close.rolling(20).mean()
-        curr_ma20 = safe_float(ma20.iloc[-1])
+        ma50 = close.rolling(50).mean()
+        ma200 = close.rolling(200).mean()
+        
+        m20_val = safe_float(ma20.iloc[-1])
+        m50_val = safe_float(ma50.iloc[-1])
+        m200_val = safe_float(ma200.iloc[-1])
+
+        if m50_val > m200_val and m200_val > 0:
+            ma_trend = "골든크로스"
+        elif m50_val < m200_val and m200_val > 0:
+            ma_trend = "데드크로스"
+        else:
+            ma_trend = "중립"
         
         # Stochastic (14, 3)
         low14 = low.rolling(14).min()
@@ -156,10 +181,9 @@ def compute_indicators(ticker):
         stoch_d = stoch_k.rolling(3).mean()
         curr_stoch_d = safe_float(stoch_d.iloc[-1])
 
-        # Ichimoku Cloud (Unshifted for current comparison)
+        # Ichimoku Cloud (Current values)
         tenkan = (high.rolling(9).max() + low.rolling(9).min()) / 2
         kijun = (high.rolling(26).max() + low.rolling(26).min()) / 2
-        # Span A/B 계산 (shift 없이 현재 기준)
         span_a = (tenkan + kijun) / 2
         span_b = (high.rolling(52).max() + low.rolling(52).min()) / 2
         
@@ -168,15 +192,15 @@ def compute_indicators(ticker):
         is_above_cloud = curr_price > max(sa_val, sb_val)
         is_below_cloud = curr_price < min(sa_val, sb_val)
 
-        # ATR (14) for Dynamic Targets/Stop Loss
+        # ATR (14) - Clamp to min 1% for sanity
         tr1 = high - low
         tr2 = abs(high - close.shift())
         tr3 = abs(low - close.shift())
         tr = pd.concat([tr1, tr2, tr3], axis=1).max(axis=1)
         atr = tr.rolling(14).mean()
-        curr_atr = safe_float(atr.iloc[-1])
+        curr_atr = max(safe_float(atr.iloc[-1]), curr_price * 0.01)
 
-        # Targets (ATR based)
+        # Targets
         target1 = curr_price + (1.5 * curr_atr)
         target2 = curr_price + (3.0 * curr_atr)
         stop_loss = curr_price - (1.5 * curr_atr)
@@ -190,7 +214,9 @@ def compute_indicators(ticker):
             "change_1d": change_1d,
             "rsi": curr_rsi,
             "macd_histogram": curr_macd_hist,
-            "ma20": curr_ma20,
+            "ma20": m20_val,
+            "ma50": m50_val,
+            "ma200": m200_val,
             "stochastic_d": curr_stoch_d,
             "is_above_cloud": is_above_cloud,
             "is_below_cloud": is_below_cloud,
@@ -198,7 +224,7 @@ def compute_indicators(ticker):
             "target1": target1,
             "target2": target2,
             "stop_loss": stop_loss,
-            "ma_trend": "정배열" if curr_price > curr_ma20 else "역배열"
+            "ma_trend": ma_trend
         }
     except Exception as e:
         print(f"지표 계산 오류 ({ticker}): {e}")
@@ -213,7 +239,7 @@ def compute_score_and_status(ind, fv):
     score = 0
     signals = []
     
-    # 1. RSI (과매수/과매도)
+    # 1. RSI
     if ind["rsi"] < 35:
         score += 20
         signals.append("RSI 과매도")
@@ -228,31 +254,43 @@ def compute_score_and_status(ind, fv):
         score += 15
         signals.append("MACD 상방")
     
-    # 3. MA 20
+    # 3. MA Trend & Cross
+    if ind["ma_trend"] == "골든크로스":
+        score += 20
+        signals.append("MA 골든크로스")
+    
     if ind["price"] > ind["ma20"]:
-            score += 15
-            signals.append("MA20 돌파/상회")
+        score += 15
+        signals.append("MA20 위")
 
-    # 4. Ichimoku Cloud
+    # 4. Stochastic
+    if ind["stochastic_d"] < 20:
+        score += 10
+        signals.append("스토캐스틱 과매도")
+    elif ind["stochastic_d"] > 80:
+        score -= 10
+        signals.append("스토캐스틱 과매수")
+
+    # 5. Ichimoku Cloud
     if ind["is_above_cloud"]:
         score += 20
-        signals.append("구름대 상단 돌파")
+        signals.append("구름대 위")
     elif ind["is_below_cloud"]:
         score -= 20
-        signals.append("구름대 하단 저항")
+        signals.append("구름대 아래 (저항)")
 
-    # 5. Volume
+    # 6. Volume
     if ind["vol_ratio"] > 150:
         score += 15
         signals.append("거래량 급증")
 
-    # 6. Finviz Momentum (상승률 가점)
+    # 7. Momentum
     if fv["change"] > 5:
         score += 10
-        signals.append("강한 모멘텀")
+        signals.append("강한 상승 모멘텀")
 
     # 진입 상태 결정
-    if score >= 60:
+    if score >= 65:
         entry = "🟢 진입 가능"
     elif score >= 40:
         entry = "⏳ 대기 (관망)"
@@ -262,7 +300,7 @@ def compute_score_and_status(ind, fv):
     return score, signals, entry
 
 # ─────────────────────────────────────────────
-# 단일 종목 분석 프로세스
+# 종목 분석 프로세스 (단일)
 # ─────────────────────────────────────────────
 
 def analyze_ticker(fv):
@@ -272,12 +310,11 @@ def analyze_ticker(fv):
     
     score, signals, entry = compute_score_and_status(ind, fv)
     
-    # yfinance 데이터를 우선하여 병합
     return {
         "ticker": ticker,
         "company": fv["company"],
         "price": ind["price"],
-        "change": ind["change_1d"], # yfinance 기준 일일 변동률
+        "change": ind["change_1d"],
         "rsi": ind["rsi"],
         "macd_histogram": ind["macd_histogram"],
         "ma20": ind["ma20"],
@@ -296,18 +333,16 @@ def analyze_ticker(fv):
     }
 
 # ─────────────────────────────────────────────
-# 메인 분석 루프
+# 메인 분석 실행
 # ─────────────────────────────────────────────
 
 def analyze():
-    print(f"[{datetime.now()}] S&P 500 모멘텀 분석 시작...")
+    print(f"[{datetime.now()}] S&P 500 정밀 분석 시작...")
     
-    # 1. 대상 종목 선정
     candidates = fetch_finviz_sp500_gainers()
     if not candidates:
-        return {"results": [], "error": "Finviz 수집 실패"}
+        return {"results": [], "error": "후보군 수집 실패"}
 
-    # 2. 병렬 분석 실행
     results = []
     with ThreadPoolExecutor(max_workers=MAX_WORKERS) as executor:
         futures = {executor.submit(analyze_ticker, fv): fv for fv in candidates}
@@ -316,7 +351,6 @@ def analyze():
             if res:
                 results.append(res)
 
-    # 점수순 정렬
     results.sort(key=lambda x: x['score'], reverse=True)
     
     today = datetime.now().strftime('%Y-%m-%d')
@@ -325,24 +359,22 @@ def analyze():
         "results": results
     }
 
-    # 3. 로컬 히스토리 저장
     try:
         if not os.path.exists("history"):
             os.makedirs("history")
         with open(f"history/{today}.json", "w", encoding="utf-8") as f:
             json.dump(save_data, f, ensure_ascii=False, indent=2)
     except Exception as e:
-        print(f"[History] 저장 오류: {e}")
+        print(f"[History] 파일 저장 오류: {e}")
 
-    # 4. 텔레그램 리포트 (상위 10개)
     if results:
         top_10 = results[:10]
-        report = f" {today} S&P 500 모멘텀 Top 10 \n\n"
+        report = f"📊 *{today} S&P 500 모멘텀 Top 10*\n\n"
         for i, r in enumerate(top_10, 1):
             report += f"{i}. *{r['ticker']}* ({r['company']})\n"
             report += f"   점수: {r['score']} | 상태: {r['entry']}\n"
-            report += f"   가격: ${r['price']:.2f} ({r['change']:+.2f}%)\n"
-            report += f"   RSI: {r['rsi']:.1f} | MACD: {r['macd_histogram']:.2f}\n\n"
+            report += f"   추세: {r['ma_trend']} | RSI: {r['rsi']:.1f}\n"
+            report += f"   가격: ${r['price']:.2f} ({r['change']:+.2f}%)\n\n"
         send_telegram(report)
 
     print(f"분석 완료: {len(results)} 종목 처리됨")
