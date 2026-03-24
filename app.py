@@ -63,13 +63,18 @@ class AppState:
                 preprocess_data(results_raw)
 
             self.last_update = datetime.now().strftime('%Y-%m-%d %H:%M:%S')
+            # 가장 최신 분석 시간을 표시
             self.analyzed_at = results_raw[0].get('analyzed_at', '-')
             self.last_error = None
 
     def load_latest_history(self):
         """무조건 히스토리에서라도 데이터 불러오기"""
+        history_dir = "history"
+        if not os.path.exists(history_dir):
+            return False
+            
         files = sorted(
-            glob.glob("history/*.json"),
+            glob.glob(os.path.join(history_dir, "*.json")),
             reverse=True
         )
 
@@ -117,7 +122,7 @@ state = AppState()
 
 
 # ─────────────────────────────
-# 분석 실행 (핵심 수정)
+# 분석 실행
 # ─────────────────────────────
 def run_analysis_background():
     error_msg = None
@@ -125,27 +130,26 @@ def run_analysis_background():
     try:
         print("\n[DEBUG] analyze() 실행 시작")
         result = analyze()
-        print("[DEBUG] analyze() 결과:", type(result))
+        print("[DEBUG] analyze() 결과 수신됨")
 
         if not result or not result.get("results"):
-            raise ValueError("analyze 결과 없음")
+            raise ValueError("analyze 결과 데이터 부재")
 
         state.update_results(result)
 
     except Exception as e:
         traceback.print_exc()
         error_msg = str(e)
-        print("[ERROR] 분석 실패 → fallback 시도")
+        print(f"[ERROR] 분석 실패: {error_msg} → fallback 시도")
 
-        # 🔥 핵심: 실패 시 히스토리라도 띄움
         if not state.load_latest_history():
-            print("[ERROR] fallback도 실패")
+            print("[ERROR] fallback 로드 마저 실패")
 
     finally:
         state.finish_analyzing(error_msg)
 
 
-# ─ HTML 템플릿 (기초 스타일 및 레이아웃 유지) ────────────────
+# ─ HTML 템플릿 (UI 보강 및 지표 동기화) ────────────────
 HTML_TEMPLATE = """
 <!DOCTYPE html>
 <html lang="ko">
@@ -185,12 +189,7 @@ HTML_TEMPLATE = """
             display: flex; align-items: center; justify-content: space-between; gap: 20px;
         }
         .logo { display: flex; align-items: center; gap: 12px; }
-        .logo-icon {
-            width: 40px; height: 40px;
-            background: linear-gradient(135deg, var(--accent), var(--accent2));
-            border-radius: 10px;
-            display: flex; align-items: center; justify-content: center; font-size: 20px;
-        }
+        .logo-icon p { font-size: 20px; }
         .logo-text h1 {
             font-size: 18px; font-weight: 700;
             background: linear-gradient(135deg, #a5b4fc, #e879f9);
@@ -299,8 +298,8 @@ HTML_TEMPLATE = """
 <div class="header">
     <div class="header-inner">
         <div class="logo">
-            <div class="logo-icon">📈</div>
-            <div class="logo-text">
+            <div class="logo-icon"><p>📈</p></div>
+                <div class="logo-text">
                 <h1>Momentum Master</h1>
                 <p>S&P 500 Daily Technical Tracker</p>
             </div>
@@ -374,9 +373,9 @@ HTML_TEMPLATE = """
             <div class="vwap-row">
                 <span class="vwap-label">VWAP ${{ "%.2f"|format(item['vwap']) }}</span>
                 {% if item['is_above_vwap'] %}
-                    <span class="vwap-above">▲ 상회 +{{ "%.1f"|format(item['vwap_gap_pct']) }}%</span>
+                    <span class="vwap-above">▲ 상회 +{{ "%.1f"|format(item['vwap_gap_pct']|abs) }}%</span>
                 {% else %}
-                    <span class="vwap-below">▼ 하회 {{ "%.1f"|format(item['vwap_gap_pct']) }}%</span>
+                    <span class="vwap-below">▼ 하회 {{ "%.1f"|format(item['vwap_gap_pct']|abs) }}%</span>
                 {% endif %}
             </div>
 
@@ -390,6 +389,13 @@ HTML_TEMPLATE = """
                 <div class="metric">
                     <div class="metric-lbl">MACD Hist</div>
                     <div class="metric-val">{{ "%.3f"|format(item['macd_histogram']) }}</div>
+                </div>
+                <!-- 🆕 Stochastic 추가 -->
+                <div class="metric">
+                    <div class="metric-lbl">Stoch D</div>
+                    <div class="metric-val" style="color: {{ 'var(--green)' if item['stochastic_d'] < 20 else ('var(--red)' if item['stochastic_d'] > 80 else 'inherit') }}">
+                        {{ "%.1f"|format(item['stochastic_d'] or 0) }}
+                    </div>
                 </div>
                 <div class="metric">
                     <div class="metric-lbl">MA 20</div>
@@ -405,9 +411,10 @@ HTML_TEMPLATE = """
                         {{ 'ABOVE 🟢' if item['is_above_cloud'] else ('BELOW 🔴' if item['is_below_cloud'] else 'INSIDE 🟡') }}
                     </div>
                 </div>
-                <div class="metric">
-                    <div class="metric-lbl">MA Trend</div>
-                    <div class="metric-val" style="font-size:11px">{{ item['ma_trend'] }}</div>
+                <!-- MA Trend 텍스트 크기 미세 조정 -->
+                <div class="metric" style="grid-column: span 3;">
+                    <div class="metric-lbl">MA Trend & Momentum</div>
+                    <div class="metric-val" style="font-size:13px">{{ item['ma_trend'] }}</div>
                 </div>
             </div>
 
@@ -455,19 +462,11 @@ async function pollStatus() {
 # ─────────────────────────────
 @app.route('/')
 def index():
-    # 🔥 최초 접속 시 무조건 데이터 확보 시도
     if not state.processed_results:
-        print("[INIT] 데이터 없음 → 분석 시도")
-        try:
-            result = analyze()
-            if result and result.get("results"):
-                state.update_results(result)
-            else:
-                state.load_latest_history()
-        except Exception:
-            traceback.print_exc()
-            state.load_latest_history()
-
+        print("[INIT] 데이터 탐색... 히스토리 로드 시도")
+        if not state.load_latest_history():
+            print("[INIT] 히스토리 없음 → 대기")
+            
     return render_template_string(HTML_TEMPLATE, **state.get_snapshot())
 
 

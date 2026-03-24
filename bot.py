@@ -373,6 +373,7 @@ def analyze_ticker(fv: dict, delay: float = 0.0) -> dict | None:
         "macd_histogram": ind["macd_histogram"],
         "ma20":           ind["ma20"],
         "ma_trend":       ind["ma_trend"],
+        "stochastic_d":   ind["stochastic_d"],
         "is_above_cloud": ind["is_above_cloud"],
         "is_below_cloud": ind["is_below_cloud"],
         "vwap":           ind["vwap"],
