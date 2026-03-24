@@ -12,7 +12,7 @@
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 """
 
-import os, io, json, warnings, time
+import os, io, json, warnings, time, requests
 import yfinance as yf
 import pandas as pd
 import numpy as np
@@ -828,8 +828,12 @@ def print_summary_table(results: list):
 def save_to_html_perfectly(target_function, *args, **kwargs):
     f = io.StringIO()
     with redirect_stdout(f):
-        target_function(*args, **kwargs)
+        # Capture the result of the function
+        func_result = target_function(*args, **kwargs)
     raw_output = f.getvalue()
+    
+    # Still print the output so it's visible in console
+    print(raw_output)
 
     decoder = AnsiDecoder()
     lines = list(decoder.decode(raw_output))
@@ -854,7 +858,7 @@ def save_to_html_perfectly(target_function, *args, **kwargs):
     filename = f"report_{timestamp}.html"
     export_console.save_html(filename, inline_styles=True, code_format=CUSTOM_FORMAT)
     print(f"\n✨ 블랙 테마 적용 완료! 저장된 파일: {filename}")
-    return filename
+    return filename, func_result
 
 
 # ─── 메인 ──────────────────────────────────────────────────────
@@ -888,6 +892,9 @@ def main():
         print_stock_report(m)
 
     print_summary_table(results)
+    
+    # Return converted dicts for reporting
+    return [_metrics_to_dict(m) for m in results]
 
 
 # ─── 웹 대시보드용 함수 ────────────────────────────────────────
@@ -948,7 +955,51 @@ def analyze() -> dict:
     with open(history_file, 'w', encoding='utf-8') as f:
         json.dump(save_data, f, ensure_ascii=False, indent=2)
 
+    # Automatically send Telegram report when analyze() is called
+    # To avoid blocking, we can consider threading here if needed but analyze()
+    # is already typical called in background thread in app.py
+    # We need a filename for HTML, since we don't have one here 
+    # we generate a temporary one or just skip file send for now
+    # Recommended: reuse save_to_html_perfectly functionality or skip file in web analyze
+    send_telegram_report(results_raw, "")
+
     return save_data
+
+
+def send_telegram_report(results: list, html_file: str):
+    """분석 요약을 텔레그램으로 전송하고 HTML 리포트 파일도 첨부"""
+    token = os.getenv("TELEGRAM_TOKEN")
+    chat_id = os.getenv("CHAT_ID")
+    
+    if not token or not chat_id:
+        print("⚠ TELEGRAM_TOKEN 또는 CHAT_ID 환경변수가 설정되지 않았습니다.")
+        return
+
+    # 요약 메시지 작성 (Top 10)
+    sorted_results = sorted(results, key=lambda x: x['total_score'], reverse=True)[:10]
+    
+    msg = "📊 *장기 투자 종합 분석 결과 (Top 10)*\n\n"
+    for i, m in enumerate(sorted_results, 1):
+        msg += f"{i}. *{m['ticker']}* ({m['name'][:12]})\n"
+        msg += f"   점수: `{m['total_score']:.1f}` | {m['signal']}\n"
+    
+    msg += f"\n📅 분석 시각: {datetime.now().strftime('%Y-%m-%d %H:%M')}"
+    msg += "\n\n✨ 상세 리포트는 아래 첨부파일을 확인하세요."
+
+    # 1. 텍스트 메시지 전송
+    try:
+        url = f"https://api.telegram.org/bot{token}/sendMessage"
+        requests.post(url, data={"chat_id": chat_id, "text": msg, "parse_mode": "Markdown"})
+        
+        # 2. HTML 파일 전송
+        if os.path.exists(html_file):
+            url_doc = f"https://api.telegram.org/bot{token}/sendDocument"
+            with open(html_file, "rb") as f:
+                requests.post(url_doc, data={"chat_id": chat_id}, files={"document": f})
+        
+        print("✅ 텔레그램 리포트 전송 완료")
+    except Exception as e:
+        print(f"❌ 텔레그램 전송 실패: {e}")
 
 
 if __name__ == "__main__":
@@ -958,4 +1009,7 @@ if __name__ == "__main__":
         print("yfinance 설치 필요: pip install yfinance pandas numpy rich")
         exit(1)
 
-    save_to_html_perfectly(main)
+    filename, results = save_to_html_perfectly(main)
+    # Send report to telegram
+    if results:
+        send_telegram_report(results, filename)
