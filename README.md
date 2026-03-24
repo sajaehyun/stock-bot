@@ -1,35 +1,32 @@
-# Stock Analysis Bot & Dashboard
+# Momentum Master: S&P 500 Daily Technical Tracker
 
-이 프로젝트는 야후 파이낸스(YFinance) 데이터를 활용하여 미국 주식(SOXL 관련 30종목)의 기술적 지표를 분석하고, 결과를 텔레그램으로 전송 및 다크모드 웹 대시보드에 표시하는 봇입니다.
+이 프로젝트는 Finviz에서 S&P 500 상승 종목들을 실시간으로 수집하고, 야후 파이낸스(YFinance) 데이터를 통해 정밀한 기술적 지표(RSI, MACD, Stochastic, VWAP, Ichimoku Cloud 등)를 분석하여 다크모드 대시보드와 텔레그램 리포트를 제공하는 봇입니다.
 
 ## 주요 기능
-- **자동 실행**: GitHub Actions를 통해 매일 오전 9시(KST) 자동 실행 및 결과 분석
-- **Firebase Firestore 연동**: 분석된 결과를 날짜별로 Firestore 데이터베이스에 자동 저장
-- **텔레그램 알림**: TOP 10 분석 결과를 요약하여 텔레그램으로 전송
-- **웹 대시보드**: Render 등 플랫폼에 배포 가능, Firestore에서 과거 데이터를 달력으로 조회
-- **기술적 지표 분석**: RSI, MACD, Stochastic, Bollinger Bands 등 기반 종목 점수 평가 및 숏스퀴즈 판독
+- **S&P 500 모멘텀 분석**: Finviz의 실시간 데이터를 기반으로 강한 상승세를 보이는 30개 종목을 선별하여 분석합니다.
+- **기술적 지표 계산**: RSI, MACD Histogram, Stochastic %D, MA20/50/200, Ichimoku Cloud, VWAP 등을 종합하여 0~100점 사이의 점수를 산출합니다.
+- **로컬 JSON 히스토리**: 분석 결과는 `history` 디렉토리에 JSON 파일로 저장되어 과거 데이터를 보존합니다.
+- **실시간 웹 대시보드**: Flask 기반의 프리미엄 다크모드 UI를 통해 종목별 상세 지표와 진입 가능 여부(🟢 진입, ⏳ 대기, ❌ 회피)를 한눈에 확인 가능합니다.
+- **텔레그램 알림**: 분석이 완료되면 상위 10개 종목에 대한 요약 리포트를 설정된 텔레그램 채널로 즉시 전송합니다.
 
 ## 설정 방법
 
 ### 1. 환경 변수 설정
-로컬에서 실행하려면 프로젝트 루트 폴더에 `.env` 파일을 생성하고 아래 내용을 입력합니다.
-또한, GitHub Actions 및 Render 등에 배포 시 동일한 환경 변수를 Repository Secrets (또는 Environment Variables)에 추가해야 합니다.
+프로젝트 루트 폴더에 `.env` 파일을 생성하고 아래 내용을 입력합니다.
+배포 시에도 동일한 환경 변수를 Repository Secrets 등에 추가해야 합니다.
 
 ```env
 TELEGRAM_TOKEN="당신의_텔레그램_봇_토큰"
 CHAT_ID="메시지를_받을_텔레그램_채팅_아이디"
-FIREBASE_CREDENTIALS='{"type": "service_account", "project_id": "...", ...}'
 ```
-
-*(참고: `FIREBASE_CREDENTIALS`는 Firebase Console에서 발급받은 서비스 계정 키(JSON)의 전체 내용을 복사하여 넣습니다. 따옴표를 주의해주세요.)*
 
 ### 2. 패키지 설치
 ```bash
 pip install -r requirements.txt
 ```
 
-### 3. 로컬 실행
-**분석 봇 실행 (수동)**
+### 3. 실행 방법 (로컬)
+**분석 단독 실행**
 ```bash
 python bot.py
 ```
@@ -38,8 +35,10 @@ python bot.py
 ```bash
 python app.py
 ```
-접속 URL: `http://localhost:5000`
+접속 URL: `http://localhost:5000` (서버 실행 후 '분석 실행' 버튼 클릭 가능)
 
 ## 배포 가이드
-- **데이터 분석 봇**: 코드를 GitHub에 푸시하고, Settings > Secrets and variables > Actions에 위 3가지 환경 변수를 추가하면, 매일 오전 9시에 `bot.py`가 자동 실행되어 Firebase에 저장하고 텔레그램에 전송합니다.
-- **웹 대시보드**: Render(render.com) 등 앱 호스팅 서비스에 연동한 후, Build Command를 `pip install -r requirements.txt`, Start Command를 `gunicorn app:app` (또는 Procfile 사용)으로 설정합니다. 웹 대시보드를 위한 환경 변수도 동일하게 설정하세요.
+- **웹 대시보드 (Render/Heroku 등)**:
+  - Build Command: `pip install -r requirements.txt`
+  - Start Command: `gunicorn app:app` (또는 Procfile 사용)
+  - 환경 변수: `TELEGRAM_TOKEN`, `CHAT_ID` 설정 필수.
