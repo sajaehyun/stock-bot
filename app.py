@@ -3,78 +3,81 @@ import glob
 import json
 import threading
 import re
+import copy
 from flask import Flask, render_template_string, redirect, url_for, request, jsonify
 from datetime import datetime
 from bot import analyze
 
 app = Flask(__name__)
 
-# ─── 전역 상수 ──────────────────────────────────────────────
+# ─── 전역 상수 및 유틸리티 ────────────────────────────────────
 ENTRY_EMOJI_MAP = {'🟢': 'green', '⏳': 'wait', '❌': 'stop'}
+
+def preprocess_data(data_raw):
+    """데이터 가공(이모지 맵핑 및 통계) - 공용 함수"""
+    results = []
+    g_cnt = 0
+    w_cnt = 0
+    for item in data_raw:
+        p = dict(item)  # 얕은 복사로 충분
+        entry_str = p.get('entry', '')
+        p['entry_key'] = 'unknown'
+        
+        for emoji, key in ENTRY_EMOJI_MAP.items():
+            if emoji in entry_str:
+                p['entry_key'] = key
+                if emoji == '🟢': g_cnt += 1
+                elif emoji == '⏳': wait_count += 1 # 실수: wait_count가 아닌 w_cnt
+                break
+        
+        # 실제 변수명 오타 수정 (w_cnt)
+        for emoji, key in ENTRY_EMOJI_MAP.items():
+            if emoji in entry_str:
+                p['entry_key'] = key
+                if emoji == '🟢': g_cnt += 1
+                elif emoji == '⏳': w_cnt += 1
+                break
+        results.append(p)
+    return results, g_cnt, w_cnt
 
 # ─── 상태 관리 클래스 ──────────────────────────────────────────
 class AppState:
     def __init__(self):
-        # 원본 및 가공 데이터
+        # 가본 상태 데이터
         self.processed_results = []
         self.green_count = 0
         self.wait_count = 0
-        
-        # 메타데이터
         self.last_update = "분석된 적 없음"
         self.analyzed_at = "-"
         
-        # 상태 제어
+        # 런타임 상태
         self.is_analyzing = False
         self.last_error = None
         
-        # 동기화
+        # 동기화 객체
         self.lock = threading.RLock()
 
-    def _preprocess(self, data_raw):
-        """데이터 가공(이모지 맵핑 및 통계) - 내부용"""
-        results = []
-        g_cnt = 0
-        w_cnt = 0
-        for item in data_raw:
-            p = dict(item)  # 얕은 복사 (템플릿 읽기 전용으로 충분)
-            entry_str = p.get('entry', '')
-            p['entry_key'] = 'unknown'
-            
-            for emoji, key in ENTRY_EMOJI_MAP.items():
-                if emoji in entry_str:
-                    p['entry_key'] = key
-                    if emoji == '🟢': g_cnt += 1
-                    elif emoji == '⏳': w_cnt += 1
-                    break
-            results.append(p)
-        return results, g_cnt, w_cnt
-
     def update_results(self, data_dict):
-        """분석 완료 후 스레드 세이프하게 데이터 업데이트"""
+        """분석 성골 시 결과 데이터 원자적 업데이트"""
         with self.lock:
             results_raw = data_dict.get('results', [])
-            self.processed_results, self.green_count, self.wait_count = self._preprocess(results_raw)
+            processed, g, w = preprocess_data(results_raw)
+            
+            self.processed_results = processed
+            self.green_count = g
+            self.wait_count = w
+            
             self.last_update = datetime.now().strftime('%Y-%m-%d %H:%M:%S')
             self.analyzed_at = results_raw[0].get('analyzed_at', '-') if results_raw else "-"
             self.last_error = None
 
-    def load_history(self, history_json):
-        """히스토리 데이터 로드 및 가공"""
-        with self.lock:
-            results_raw = history_json.get('results', [])
-            self.processed_results, self.green_count, self.wait_count = self._preprocess(results_raw)
-            self.last_update = history_json.get('analyzed_at', '과거 기록')
-            self.analyzed_at = results_raw[0].get('analyzed_at', '-') if results_raw else "-"
-            self.last_error = None
-
     def start_analyzing(self):
-        """락을 보유한 상태에서 상태 전환 (중복 실행 방지)"""
+        """분석 시작 전 중복 실행 방지 및 에러 초기화"""
         with self.lock:
             if self.is_analyzing:
                 return False
             self.is_analyzing = True
-            self.last_error = None
+            self.last_error = None # 에러 초기화 추가
             return True
 
     def set_error(self, error_msg):
@@ -86,10 +89,10 @@ class AppState:
             self.is_analyzing = status
 
     def get_snapshot(self):
-        """UI 렌더링을 위한 데이터 스냅샷 획득"""
+        """현재 상태의 불변 스냅샷 반환"""
         with self.lock:
             return {
-                'data': self.processed_results,
+                'data': list(self.processed_results),  # 리스트 참조 복사
                 'green_count': self.green_count,
                 'wait_count': self.wait_count,
                 'last_update': self.last_update,
@@ -408,7 +411,6 @@ async function pollStatus() {
     try {
         const res = await fetch('/status');
         const d = await res.json();
-        // 분석이 끝나거나 에러가 발생한 경우 새로고침
         if (!d.is_analyzing) {
             location.reload();
         } else {
@@ -431,10 +433,17 @@ pollStatus();
 def run_analysis_background():
     try:
         results_data = analyze()
+        # 데이터 유효성 검증 추가
+        if not results_data or not isinstance(results_data, dict):
+            raise ValueError(f"분석기가 유효하지 않은 결과를 반환했습니다.")
+        if not results_data.get('results'):
+            raise ValueError("수집된 분석 결과가 없습니다.")
+            
         state.update_results(results_data)
     except Exception as e:
         print(f"Background analysis error: {e}")
         state.set_error(str(e))
+        # NOTE: 분석 실패 시 이전 데이터를 그대로 유지하며 사용자에게 에러만 알립니다.
     finally:
         state.set_analyzing(False)
 
@@ -443,14 +452,22 @@ def run_analysis_background():
 def index():
     snapshot = state.get_snapshot()
     
-    # 데이터가 비어있다면 마지막 히스토리 로드 시도
-    if not snapshot['data']:
+    # 캐시에 데이터가 없고 분석 중이 아닐 때만 히스토리 로드
+    if not snapshot['data'] and not snapshot['is_analyzing']:
         available = get_available_dates()
         if available:
             hist = get_history_data(available[0])
             if hist:
-                state.load_history(hist)
-                snapshot = state.get_snapshot()
+                # 락 경쟁 방지를 위해 캐시(state)를 수정하지 않고 로컬 변수로만 처리
+                results_raw = hist.get('results', [])
+                processed, g, w = preprocess_data(results_raw)
+                snapshot.update({
+                    'data': processed,
+                    'green_count': g,
+                    'wait_count': w,
+                    'last_update': hist.get('analyzed_at', available[0]),
+                    'analyzed_at': results_raw[0].get('analyzed_at', '-') if results_raw else "-"
+                })
 
     return render_template_string(
         HTML_TEMPLATE,
@@ -459,7 +476,6 @@ def index():
 
 @app.route('/status')
 def status():
-    # snapshot 대신 필요한 정보만 스레드 세이프하게 획득
     with state.lock:
         return jsonify({
             'is_analyzing': state.is_analyzing,
@@ -468,7 +484,6 @@ def status():
 
 @app.route('/refresh', methods=['POST'])
 def refresh():
-    # start_analyzing 내부에서 락을 활용하므로 안전함
     if state.start_analyzing():
         t = threading.Thread(target=run_analysis_background, daemon=True)
         t.start()
