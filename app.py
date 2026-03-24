@@ -18,10 +18,9 @@ def preprocess_data(data_raw):
     g_cnt = 0
     w_cnt = 0
     for item in data_raw:
-        p = dict(item)  # 얕은 복사로 충분
+        p = dict(item)
         entry_str = p.get('entry', '')
         p['entry_key'] = 'unknown'
-        
         for emoji, key in ENTRY_EMOJI_MAP.items():
             if emoji in entry_str:
                 p['entry_key'] = key
@@ -34,7 +33,7 @@ def preprocess_data(data_raw):
 # ─── 상태 관리 클래스 ──────────────────────────────────────────
 class AppState:
     def __init__(self):
-        # 가본 상태 데이터
+        # 기본 데이터
         self.processed_results = []
         self.green_count = 0
         self.wait_count = 0
@@ -49,41 +48,55 @@ class AppState:
         self.lock = threading.RLock()
 
     def update_results(self, data_dict):
-        """분석 성골 시 결과 데이터 원자적 업데이트"""
+        """분석 성공 시 전처리 및 캐시 업데이트"""
         with self.lock:
             results_raw = data_dict.get('results', [])
-            processed, g, w = preprocess_data(results_raw)
-            
-            self.processed_results = processed
-            self.green_count = g
-            self.wait_count = w
-            
+            self.processed_results, self.green_count, self.wait_count = preprocess_data(results_raw)
             self.last_update = datetime.now().strftime('%Y-%m-%d %H:%M:%S')
             self.analyzed_at = results_raw[0].get('analyzed_at', '-') if results_raw else "-"
             self.last_error = None
 
+    def ensure_history_loaded(self):
+        """데이터가 없는 경우에만 히스토리 파일 로드 (최초 1회 최적화)"""
+        with self.lock:
+            # 캐시가 있고 데이터가 있거나, 현재 분석 중이면 스킵
+            if self.processed_results or self.is_analyzing:
+                return
+            
+            # 히스토리 디렉토리 탐색
+            available = get_available_dates()
+            if not available:
+                return
+            
+            # 최신 히스토리 읽기
+            hist = get_history_data(available[0])
+            if hist:
+                raw = hist.get('results', [])
+                self.processed_results, self.green_count, self.wait_count = preprocess_data(raw)
+                self.last_update = hist.get('analyzed_at', available[0])
+                self.analyzed_at = raw[0].get('analyzed_at', '-') if raw else "-"
+
     def start_analyzing(self):
-        """분석 시작 전 중복 실행 방지 및 에러 초기화"""
+        """분석 시작 전 중복 방지 체크 및 초기화"""
         with self.lock:
             if self.is_analyzing:
                 return False
             self.is_analyzing = True
-            self.last_error = None # 에러 초기화 추가
+            self.last_error = None
             return True
 
-    def set_error(self, error_msg):
+    def finish_analyzing(self, error=None):
+        """분석 작업 종료 처리 (성공 또는 실패)"""
         with self.lock:
-            self.last_error = error_msg
-
-    def set_analyzing(self, status):
-        with self.lock:
-            self.is_analyzing = status
+            self.is_analyzing = False
+            if error:
+                self.last_error = str(error)
 
     def get_snapshot(self):
-        """현재 상태의 불변 스냅샷 반환"""
+        """일관성 있는 화면 표시용 데이터 스탬샷"""
         with self.lock:
             return {
-                'data': list(self.processed_results),  # 리스트 참조 복사
+                'data': list(self.processed_results),
                 'green_count': self.green_count,
                 'wait_count': self.wait_count,
                 'last_update': self.last_update,
@@ -422,44 +435,34 @@ pollStatus();
 
 
 def run_analysis_background():
+    error_to_report = None
     try:
         results_data = analyze()
-        # 데이터 유효성 검증 추가
+        
+        # 데이터 검증
         if not results_data or not isinstance(results_data, dict):
-            raise ValueError(f"분석기가 유효하지 않은 결과를 반환했습니다.")
+            raise ValueError(f"분석기가 유효하지 않은 결과를 반환했습니다: {type(results_data)}")
         if not results_data.get('results'):
             raise ValueError("수집된 분석 결과가 없습니다.")
             
         state.update_results(results_data)
+        
+    except ValueError as ve:
+        print(f"[Validation Error] {ve}")
+        error_to_report = f"데이터 오류: {ve}"
     except Exception as e:
-        print(f"Background analysis error: {e}")
-        state.set_error(str(e))
-        # NOTE: 분석 실패 시 이전 데이터를 그대로 유지하며 사용자에게 에러만 알립니다.
+        print(f"[Analysis Error] {e}")
+        error_to_report = f"분석 실패: {e}"
     finally:
-        state.set_analyzing(False)
+        state.finish_analyzing(error=error_to_report)
 
 
 @app.route('/')
 def index():
-    snapshot = state.get_snapshot()
+    # 최초 진입 시 데이터가 없다면 히스토리를 1회 로드하여 state에 저장
+    state.ensure_history_loaded()
     
-    # 캐시에 데이터가 없고 분석 중이 아닐 때만 히스토리 로드
-    if not snapshot['data'] and not snapshot['is_analyzing']:
-        available = get_available_dates()
-        if available:
-            hist = get_history_data(available[0])
-            if hist:
-                # 락 경쟁 방지를 위해 캐시(state)를 수정하지 않고 로컬 변수로만 처리
-                results_raw = hist.get('results', [])
-                processed, g, w = preprocess_data(results_raw)
-                snapshot.update({
-                    'data': processed,
-                    'green_count': g,
-                    'wait_count': w,
-                    'last_update': hist.get('analyzed_at', available[0]),
-                    'analyzed_at': results_raw[0].get('analyzed_at', '-') if results_raw else "-"
-                })
-
+    snapshot = state.get_snapshot()
     return render_template_string(
         HTML_TEMPLATE,
         **snapshot
@@ -467,11 +470,12 @@ def index():
 
 @app.route('/status')
 def status():
-    with state.lock:
-        return jsonify({
-            'is_analyzing': state.is_analyzing,
-            'last_error': state.last_error
-        })
+    # 스냅샷 정보를 통해 안전하게 반환
+    snapshot = state.get_snapshot()
+    return jsonify({
+        'is_analyzing': snapshot['is_analyzing'],
+        'last_error': snapshot['last_error']
+    })
 
 @app.route('/refresh', methods=['POST'])
 def refresh():
