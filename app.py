@@ -3,7 +3,6 @@ import glob
 import json
 import threading
 import re
-import copy
 from flask import Flask, render_template_string, redirect, url_for, request, jsonify
 from datetime import datetime
 from bot import analyze
@@ -23,14 +22,6 @@ def preprocess_data(data_raw):
         entry_str = p.get('entry', '')
         p['entry_key'] = 'unknown'
         
-        for emoji, key in ENTRY_EMOJI_MAP.items():
-            if emoji in entry_str:
-                p['entry_key'] = key
-                if emoji == '🟢': g_cnt += 1
-                elif emoji == '⏳': wait_count += 1 # 실수: wait_count가 아닌 w_cnt
-                break
-        
-        # 실제 변수명 오타 수정 (w_cnt)
         for emoji, key in ENTRY_EMOJI_MAP.items():
             if emoji in entry_str:
                 p['entry_key'] = key
