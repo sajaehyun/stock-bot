@@ -1,3 +1,6 @@
-.env
+﻿history/
+presignal/
+conviction/
+backtest_results/
 __pycache__/
-*.pyc
+.env
