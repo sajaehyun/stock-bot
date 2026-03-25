@@ -221,26 +221,37 @@ def _yfinance_candles(ticker: str) -> pd.DataFrame | None:
     if not _YF_AVAILABLE:
         return None
     try:
-        kw = {"period": "2y", "interval": "1d", "auto_adjust": True, "progress": False}
+        kw = {
+            "period":      "2y",
+            "interval":    "1d",
+            "auto_adjust": True,
+            "progress":    False,
+        }
         if _YF_SUPPORTS_MLI:
             kw["multi_level_index"] = False
+
         raw = yf.download(ticker, **kw)
         if raw is None or raw.empty:
             return None
 
-        # ✅ MultiIndex 완전 제거 — 새 DataFrame으로 재구성
+        # ── MultiIndex 완전 제거: 컬럼별로 1D squeeze ────────
         if isinstance(raw.columns, pd.MultiIndex):
-            # 첫 번째 레벨(필드명)만 추출해서 새 dict로 재구성
             data = {}
             for col in raw.columns:
-                field = col[0]   # "Close", "High" 등
+                field = col[0]   # "Close", "High", ...
                 if field not in data:
-                    data[field] = raw[col].values
+                    arr = raw[col]
+                    # 혹시 2D면 첫 번째 열만 취함
+                    if hasattr(arr, "squeeze"):
+                        arr = arr.squeeze()
+                    if isinstance(arr, pd.DataFrame):
+                        arr = arr.iloc[:, 0]
+                    data[field] = arr.values.flatten()   # ← 반드시 1D
             df = pd.DataFrame(data, index=raw.index)
         else:
             df = raw.copy()
 
-        # 컬럼명 정규화
+        # ── 컬럼 이름 정규화 ─────────────────────────────────
         rename = {}
         for c in df.columns:
             cl = str(c).lower().strip()
@@ -264,9 +275,11 @@ def _yfinance_candles(ticker: str) -> pd.DataFrame | None:
             return None
 
         return df if len(df) >= 40 else None
+
     except Exception as e:
         log.warning("yfinance 다운로드 오류 [%s]: %s", ticker, e)
         return None
+
 
 
 def fetch_ohlcv(ticker: str) -> pd.DataFrame | None:
