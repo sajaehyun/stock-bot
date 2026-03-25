@@ -57,6 +57,8 @@ class AppState:
         self._analyzing = False
         self._analyzing_presignal = False
         self._analyzing_backtest = False
+        self._conviction_results = None
+        self._analyzing_conviction = False
         self._error = None
         self._history_loaded = False
 
@@ -123,6 +125,9 @@ class AppState:
             return {
                 "results": self._results,
                 "presignal_results": self._presignal_results,
+                "conviction_results": self._conviction_results,
+                "analyzing_conviction": self._analyzing_conviction,
+
                 "backtest_results": self._backtest_results,
                 "analyzing": self._analyzing,
                 "analyzing_presignal": self._analyzing_presignal,
@@ -229,10 +234,10 @@ def index():
         "dashboard.html",
         data=snap["results"],
         presignal_data=snap["presignal_results"],
-        conviction_data=snap["conviction_results"], # New: pass conviction data
+        conviction_data=snap.get("conviction_results"), # New: pass conviction data
         analyzing=snap["analyzing"],
         analyzing_presignal=snap["analyzing_presignal"],
-        analyzing_conviction=snap["analyzing_conviction"], # New: pass conviction analysis state
+        analyzing_conviction=snap.get("analyzing_conviction", False), # New: pass conviction analysis state
         error=snap["error"],
         is_history=False,
         universes=bot.UNIVERSE_MAP,
