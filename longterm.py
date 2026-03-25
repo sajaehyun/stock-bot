@@ -589,7 +589,9 @@ def analyze_ticker_longterm(ticker_str):
 # ── 메인 스캔 ─────────────────────────────────────────
 def analyze_longterm(universe="sp500+sox"):
     """전체 유니버스 중장기 스캔"""
-    symbols = UNIVERSE_MAP.get(universe, UNIVERSE_MAP["sp500+sox"])
+    umap = UNIVERSE_MAP.get(universe, UNIVERSE_MAP["sp500+sox"])
+    symbols = umap["symbols"] if isinstance(umap, dict) else umap
+
     LOG.info(f"중장기 분석 시작: {universe} ({len(symbols)}종목)")
 
     results = []

@@ -1,0 +1,110 @@
+{
+  "timestamp": "2026-03-25_170456",
+  "universe": "sp500+sox",
+  "total_scanned": 2,
+  "results_count": 2,
+  "results": [
+    {
+      "ticker": "symbols",
+      "company": "symbols",
+      "sector": "",
+      "industry": "",
+      "price": 0,
+      "total_score": 0,
+      "grade": "⏳ 관망",
+      "scores": {
+        "institutional": 0,
+        "insider": 0,
+        "fundamental": 0,
+        "news": 0,
+        "analyst": 0,
+        "trend": 0
+      },
+      "signals": [],
+      "institutional": {
+        "pct": null,
+        "top_holders": []
+      },
+      "fundamentals": {
+        "pe": null,
+        "forward_pe": null,
+        "peg": null,
+        "revenue_growth": null,
+        "earnings_growth": null,
+        "debt_to_equity": null,
+        "profit_margin": null,
+        "roe": null,
+        "dividend_yield": null
+      },
+      "analyst": {
+        "recommendation": null,
+        "target_mean": null,
+        "target_high": null,
+        "num_analysts": null
+      },
+      "news_summary": {
+        "positive": 0,
+        "negative": 0,
+        "neutral": 0,
+        "recent": []
+      },
+      "trend": {
+        "above_200ma": null,
+        "ma200_gap": null,
+        "above_50ma": null,
+        "weekly_rsi": null
+      }
+    },
+    {
+      "ticker": "name",
+      "company": "name",
+      "sector": "",
+      "industry": "",
+      "price": 0,
+      "total_score": 0,
+      "grade": "⏳ 관망",
+      "scores": {
+        "institutional": 0,
+        "insider": 0,
+        "fundamental": 0,
+        "news": 0,
+        "analyst": 0,
+        "trend": 0
+      },
+      "signals": [],
+      "institutional": {
+        "pct": null,
+        "top_holders": []
+      },
+      "fundamentals": {
+        "pe": null,
+        "forward_pe": null,
+        "peg": null,
+        "revenue_growth": null,
+        "earnings_growth": null,
+        "debt_to_equity": null,
+        "profit_margin": null,
+        "roe": null,
+        "dividend_yield": null
+      },
+      "analyst": {
+        "recommendation": null,
+        "target_mean": null,
+        "target_high": null,
+        "num_analysts": null
+      },
+      "news_summary": {
+        "positive": 0,
+        "negative": 0,
+        "neutral": 0,
+        "recent": []
+      },
+      "trend": {
+        "above_200ma": null,
+        "ma200_gap": null,
+        "above_50ma": null,
+        "weekly_rsi": null
+      }
+    }
+  ]
+}
