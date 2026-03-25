@@ -30,14 +30,28 @@ CHAT_ID         = os.getenv("CHAT_ID", "")
 # ──────────────────────────── 상수 ─────────────────────────────────
 MAX_WORKERS     = 5
 MAX_TICKERS     = 30
-RAW_SCORE_MAX   = 140   # +20+20+15+15+20+15+10+10+10+5 = +140
-RAW_SCORE_MIN   = -80   # -20-15-10-10-10-10-5          = -80
-RAW_SCORE_RANGE = RAW_SCORE_MAX - RAW_SCORE_MIN          # 220
+RAW_SCORE_MAX   = 140
+RAW_SCORE_MIN   = -80
+RAW_SCORE_RANGE = RAW_SCORE_MAX - RAW_SCORE_MIN   # 220
 FINNHUB_BASE    = "https://finnhub.io/api/v1"
 FINNHUB_DELAY   = 1.1
 HISTORY_DIR     = pathlib.Path("history")
 HISTORY_DIR.mkdir(exist_ok=True)
-HISTORY_TS_FMT  = "%Y-%m-%d_%H%M%S"   # app.py 와 공유 → bot.HISTORY_TS_FMT 로 참조
+HISTORY_TS_FMT  = "%Y-%m-%d_%H%M%S"
+
+# S&P 500 대표 종목 하드코딩 (Wikipedia/index API 대체)
+SP500_SYMBOLS = [
+    "AAPL","MSFT","NVDA","AMZN","META","GOOGL","GOOG","BRK-B","LLY","AVGO",
+    "JPM","TSLA","UNH","V","XOM","MA","JNJ","PG","COST","HD",
+    "ABBV","MRK","WMT","CVX","BAC","NFLX","CRM","AMD","KO","PEP",
+    "TMO","ACN","MCD","ADBE","LIN","DHR","CSCO","ABT","TXN","NEE",
+    "WFC","PM","INTU","AMGN","MS","RTX","SPGI","HON","GE","CAT",
+    "ISRG","BLK","VRTX","AXP","SYK","BKNG","PLD","TJX","GILD","ADI",
+    "MDLZ","MMC","CB","MO","SO","DUK","CL","BSX","EOG","ITW",
+    "REGN","CME","PH","SLB","ZTS","MCO","USB","FI","HCA","BDX",
+    "CI","ICE","NOC","GD","MET","TGT","F","GM","UBER","NOW",
+    "PANW","SNOW","COIN","PLTR","ARM","SMCI","DELL","HPQ","MU","QCOM",
+]
 
 # 한글 매핑
 CLOUD_STATUS_KO = {
@@ -107,7 +121,6 @@ def _parse_pct(s) -> float:
 
 
 def normalize_score(raw: float) -> int:
-    """raw score → 0‑100 정수 (클램핑 포함)."""
     clamped = max(RAW_SCORE_MIN, min(RAW_SCORE_MAX, raw))
     return int(round((clamped - RAW_SCORE_MIN) / RAW_SCORE_RANGE * 100))
 
@@ -131,11 +144,10 @@ def send_telegram(message: str) -> None:
         log.info("Telegram 토큰 미설정 → 전송 스킵")
         return
     url = f"https://api.telegram.org/bot{TELEGRAM_TOKEN}/sendMessage"
-    payload = message[:4000]   # ✅ Telegram 4096자 제한 대응
     try:
         resp = requests.post(
             url,
-            json={"chat_id": CHAT_ID, "text": payload, "parse_mode": "HTML"},
+            json={"chat_id": CHAT_ID, "text": message[:4000], "parse_mode": "HTML"},
             timeout=10,
         )
         if resp.status_code != 200:
@@ -151,7 +163,7 @@ def send_telegram(message: str) -> None:
 def _finnhub_get(endpoint: str, params: dict, retries: int = 3):
     if not FINNHUB_API_KEY:
         return None
-    params = {**params, "token": FINNHUB_API_KEY}   # 원본 dict 변조 방지
+    params = {**params, "token": FINNHUB_API_KEY}
     url = f"{FINNHUB_BASE}/{endpoint}"
     for attempt in range(retries):
         try:
@@ -246,7 +258,6 @@ def fetch_ohlcv(ticker: str) -> pd.DataFrame | None:
     df = _finnhub_candles(ticker)
     if df is not None:
         return df
-    time.sleep(FINNHUB_DELAY)
     df = _yfinance_candles(ticker)
     if df is not None:
         log.info("[%s] yfinance 폴백 사용", ticker)
@@ -262,14 +273,13 @@ def fetch_finviz_sp500_gainers() -> list:
         return []
     try:
         foverview = Overview()
-        # finvizfinance 버전별 signal 파라미터 호환
         try:
             foverview.set_filter(
-                signal="top_gainers",
-                filters_dict={"idx_sp500": "S&P 500"},
+                signal="Top Gainers",
+                filters_dict={"Index": "S&P 500"},
             )
-        except TypeError:
-            foverview.set_filter(filters_dict={"idx_sp500": "S&P 500"})
+        except (TypeError, AttributeError):
+            foverview.set_filter(filters_dict={"Index": "S&P 500"})
 
         df = foverview.screener_view()
         if df is None or df.empty:
@@ -294,12 +304,11 @@ def fetch_finviz_sp500_gainers() -> list:
 
 
 def _fetch_yfinance_batch_fallback() -> list:
+    """Wikipedia 대신 하드코딩 리스트 사용 (403 차단 방지)."""
     if not _YF_AVAILABLE:
         return []
     try:
-        tables  = pd.read_html("https://en.wikipedia.org/wiki/List_of_S%26P_500_companies")
-        symbols = [s.replace(".", "-") for s in tables[0]["Symbol"].tolist()]
-
+        symbols = SP500_SYMBOLS
         kw = {"period": "5d", "interval": "1d", "auto_adjust": True, "progress": False}
         if _YF_SUPPORTS_MLI:
             kw["multi_level_index"] = False
@@ -307,7 +316,6 @@ def _fetch_yfinance_batch_fallback() -> list:
         if df is None or df.empty:
             return []
 
-        # MultiIndex 처리
         if isinstance(df.columns, pd.MultiIndex):
             close = df["Close"]
         elif "Close" in df.columns:
@@ -324,9 +332,10 @@ def _fetch_yfinance_batch_fallback() -> list:
 
         results = []
         for sym in chg.head(MAX_TICKERS).index:
-            # ✅ MultiIndex 잔존 방어: sym in index 체크 후 접근
             price_val  = safe_float(last[sym] if sym in last.index else 0)
             change_val = round(safe_float(chg[sym] if sym in chg.index else 0), 2)
+            if price_val <= 0:
+                continue
             results.append({
                 "ticker":        str(sym).strip().upper(),
                 "company":       str(sym),
@@ -341,15 +350,12 @@ def _fetch_yfinance_batch_fallback() -> list:
 
 
 def _fetch_finnhub_sp500_fallback() -> list:
-    """Finnhub S&P 500 구성 종목 quote — 병렬 처리 (max_workers=3으로 rate-limit 제어)."""
-    data = _finnhub_get("index/constituents", {"symbol": "^GSPC"})
-    if not data or "constituents" not in data:
-        log.warning("Finnhub S&P 500 구성 종목 조회 실패")
+    """하드코딩 리스트 + Finnhub quote API (무료 플랜 호환)."""
+    if not FINNHUB_API_KEY:
+        log.warning("FINNHUB_API_KEY 미설정 → Finnhub 폴백 스킵")
         return []
-    symbols = data["constituents"][:80]
 
     def _fetch_quote(sym: str):
-        # ✅ sleep 제거: max_workers=3 이 rate-limit 역할 담당
         q = _finnhub_get("quote", {"symbol": sym})
         if q and q.get("c", 0) > 0 and q.get("pc", 0) > 0:
             chg = (q["c"] - q["pc"]) / q["pc"] * 100
@@ -362,9 +368,13 @@ def _fetch_finnhub_sp500_fallback() -> list:
         return None
 
     with ThreadPoolExecutor(max_workers=3) as ex:
-        raw = list(ex.map(_fetch_quote, symbols))
+        raw = list(ex.map(_fetch_quote, SP500_SYMBOLS))
 
-    quotes = sorted([r for r in raw if r], key=lambda x: x["finviz_change"], reverse=True)
+    quotes = sorted(
+        [r for r in raw if r],
+        key=lambda x: x["finviz_change"],
+        reverse=True,
+    )
     result = quotes[:MAX_TICKERS]
     log.info("Finnhub 폴백: %d 종목", len(result))
     return result
@@ -382,7 +392,6 @@ def compute_indicators(ticker: str) -> dict | None:
     if df is None:
         return None
 
-    # ✅ 필수 컬럼 존재 확인 (KeyError 방지)
     missing = [c for c in _REQUIRED_COLS if c not in df.columns]
     if missing:
         log.warning("[%s] 컬럼 누락: %s – 스킵", ticker, missing)
@@ -394,13 +403,12 @@ def compute_indicators(ticker: str) -> dict | None:
         low    = df["Low"]
         volume = df["Volume"]
 
-        # DataFrame → Series 보정
         if isinstance(close,  pd.DataFrame): close  = close.squeeze()
         if isinstance(high,   pd.DataFrame): high   = high.squeeze()
         if isinstance(low,    pd.DataFrame): low    = low.squeeze()
         if isinstance(volume, pd.DataFrame): volume = volume.squeeze()
 
-        # ── 현재가 / 1일 변화율 ──────────────────────────────────
+        # 현재가 / 1일 변화율
         price     = safe_float(close.iloc[-1])
         change_1d = 0.0
         if len(close) >= 2:
@@ -410,21 +418,21 @@ def compute_indicators(ticker: str) -> dict | None:
 
         result = {"price": price, "change_1d": change_1d}
 
-        # ── RSI (14) — Wilder's EMA ──────────────────────────────
+        # RSI (14) — Wilder's EMA
         if len(close) >= 15:
             delta    = close.diff()
             gain     = delta.clip(lower=0)
-            loss     = (-delta).clip(upper=0)
+            loss     = (-delta).clip(lower=0)
             avg_gain = gain.ewm(alpha=1 / 14, adjust=False).mean()
             avg_loss = loss.ewm(alpha=1 / 14, adjust=False).mean()
             last_gain = safe_float(avg_gain.iloc[-1])
             last_loss = safe_float(avg_loss.iloc[-1])
             if last_gain == 0 and last_loss == 0:
-                rsi = 50.0          # 완전 보합 → 중립
+                rsi = 50.0
             elif last_loss == 0:
-                rsi = 100.0         # 무손실 상승 → 과매수
+                rsi = 100.0
             elif last_gain == 0:
-                rsi = 0.0           # 무이익 하락 → 과매도
+                rsi = 0.0
             else:
                 rs  = last_gain / last_loss
                 rsi = round(100 - 100 / (1 + rs), 2)
@@ -432,7 +440,7 @@ def compute_indicators(ticker: str) -> dict | None:
         else:
             result["rsi"] = 50.0
 
-        # ── MACD (12/26/9) ───────────────────────────────────────
+        # MACD (12/26/9)
         if len(close) >= 35:
             ema12       = close.ewm(span=12, adjust=False).mean()
             ema26       = close.ewm(span=26, adjust=False).mean()
@@ -446,7 +454,7 @@ def compute_indicators(ticker: str) -> dict | None:
         else:
             result["macd"] = result["macd_signal"] = result["macd_histogram"] = 0.0
 
-        # ── 이동평균 (20 / 50 / 200) ─────────────────────────────
+        # 이동평균 (20 / 50 / 200)
         for period in [20, 50, 200]:
             if len(close) >= period:
                 result[f"ma{period}"] = round(
@@ -455,7 +463,7 @@ def compute_indicators(ticker: str) -> dict | None:
             else:
                 result[f"ma{period}"] = price
 
-        # MA 트렌드 (한글 + raw 키 분리)
+        # MA 트렌드
         if result["ma20"] > result["ma50"] > result["ma200"]:
             result["ma_trend"]     = MA_TREND_KO["bullish"]
             result["ma_trend_raw"] = "bullish"
@@ -477,19 +485,19 @@ def compute_indicators(ticker: str) -> dict | None:
                 if p20 >= p50 and c20 < c50:
                     result["dead_cross"] = True
 
-        # ── Stochastic %K / %D (표준) ────────────────────────────
+        # Stochastic %K / %D
         if len(close) >= 14:
             low14  = low.rolling(14).min()
             high14 = high.rolling(14).max()
             denom  = (high14 - low14).replace(0, np.nan)
-            raw_k  = (close - low14) / denom * 100   # raw %K
-            stoch_d = raw_k.rolling(3).mean()          # %D = %K의 3일 SMA
+            raw_k  = (close - low14) / denom * 100
+            stoch_d = raw_k.rolling(3).mean()
             result["stoch_k"] = round(safe_float(raw_k.iloc[-1],  50.0), 2)
             result["stoch_d"] = round(safe_float(stoch_d.iloc[-1], 50.0), 2)
         else:
             result["stoch_k"] = result["stoch_d"] = 50.0
 
-        # ── Ichimoku Cloud (shift 26 적용) ───────────────────────
+        # Ichimoku Cloud (shift 26)
         if len(close) >= 52:
             tenkan = (high.rolling(9).max()  + low.rolling(9).min())  / 2
             kijun  = (high.rolling(26).max() + low.rolling(26).min()) / 2
@@ -515,7 +523,7 @@ def compute_indicators(ticker: str) -> dict | None:
             result["cloud_status"]     = CLOUD_STATUS_KO["inside"]
             result["cloud_status_raw"] = "inside"
 
-        # ── 20D VWAP (rolling sum) ───────────────────────────────
+        # 20D VWAP (rolling sum)
         if len(close) >= 20:
             tp      = (high + low + close) / 3
             tp_vol  = tp * volume
@@ -525,7 +533,7 @@ def compute_indicators(ticker: str) -> dict | None:
         else:
             result["vwap"] = price
 
-        # ── ATR (14) ─────────────────────────────────────────────
+        # ATR (14)
         if len(close) >= 15:
             tr = pd.concat([
                 high - low,
@@ -541,10 +549,9 @@ def compute_indicators(ticker: str) -> dict | None:
         result["target_2"]  = round(price + atr * 3.0, 2)
         result["stop_loss"] = round(price - atr * 1.5, 2)
 
-        # ── 거래량 비율 (x 단위, rolling 방식으로 통일) ──────────
+        # 거래량 비율
         if len(volume) >= 21:
-            # ✅ rolling().mean().iloc[-1] 로 다른 지표와 패턴 통일
-            avg_vol = safe_float(volume.rolling(20).mean().iloc[-1], 1)
+            avg_vol  = safe_float(volume.rolling(20).mean().iloc[-1], 1)
             last_vol = safe_float(volume.iloc[-1])
             result["volume_ratio"] = round(last_vol / avg_vol, 2) if avg_vol > 0 else 1.0
         else:
@@ -560,8 +567,6 @@ def compute_indicators(ticker: str) -> dict | None:
 # ═══════════════════════════════════════════════════════════════════
 # 점수 · 진입 상태
 # ═══════════════════════════════════════════════════════════════════
-# 최대: +20+20+15+15+20+15+10+10+10+5 = +140
-# 최소: -20-15-10-10-10-10-5          = -80
 
 def compute_score_and_status(ind: dict, fv: dict) -> dict:
     raw     = 0
@@ -600,7 +605,7 @@ def compute_score_and_status(ind: dict, fv: dict) -> dict:
         else:
             raw -= 10; signals.append("⚠️ 가격 < MA20")
 
-    # MA 트렌드 (+15 / -10) — raw 키로 판단
+    # MA 트렌드 (+15 / -10)
     if ind.get("ma_trend_raw") == "bullish":
         raw += 15; signals.append("✅ MA 정배열")
     else:
@@ -668,18 +673,8 @@ def compute_score_and_status(ind: dict, fv: dict) -> dict:
 # ═══════════════════════════════════════════════════════════════════
 
 def analyze_ticker(fv: dict) -> dict | None:
-    """
-    반환 키 (dashboard.html 1:1 대응):
-      ticker, company, price, change_1d, finviz_change,
-      score, raw_score, entry, entry_key, signals,
-      rsi, macd, macd_signal, macd_histogram,
-      ma20, ma50, ma200, ma_trend, golden_cross, dead_cross,
-      stoch_k, stoch_d, cloud_status, cloud_top, cloud_bottom,
-      vwap, atr, target_1, target_2, stop_loss, volume_ratio
-    """
     ticker = fv["ticker"]
     try:
-        # ✅ sleep 제거: fetch_ohlcv 내부 FINNHUB_DELAY 와 ThreadPoolExecutor 가 충분히 제어
         ind = compute_indicators(ticker)
         if ind is None:
             log.warning("[%s] 지표 계산 실패", ticker)
@@ -802,7 +797,7 @@ def analyze() -> dict:
     except Exception as e:
         log.error("히스토리 저장 오류: %s", e)
 
-    # Telegram 보고서 (4000자 제한)
+    # Telegram 보고서
     top10 = results[:10]
     lines = [
         "<b>📊 S&amp;P 500 모멘텀 분석</b>",
@@ -817,9 +812,8 @@ def analyze() -> dict:
             f"점수:{r['score']} | "
             f"${r['price']} ({r['change_1d']:+.1f}%)"
         )
-    send_telegram("\n".join(lines))   # ✅ send_telegram 내부에서 [:4000] 처리
+    send_telegram("\n".join(lines))
 
-    # 콘솔 요약
     log.info("═══ 분석 완료 ═══")
     log.info(
         "총 %d종목 | 🟢 %d | ⏳ %d | ❌ %d",

@@ -1,61 +1,116 @@
 <!DOCTYPE html>
 <html lang="ko">
+
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>분석 히스토리</title>
     <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
     <style>
-        * { margin:0; padding:0; box-sizing:border-box; }
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+
         body {
-            font-family:'Inter',-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,sans-serif;
-            background:linear-gradient(135deg,#0f0c29,#302b63,#24243e);
-            color:#e0e0e0; min-height:100vh; padding:20px;
+            font-family: 'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+            background: linear-gradient(135deg, #0f0c29, #302b63, #24243e);
+            color: #e0e0e0;
+            min-height: 100vh;
+            padding: 20px;
         }
-        .container { max-width:800px; margin:0 auto; }
-        h1 { font-size:1.4rem; margin-bottom:20px; }
-        a { color:#a5b4fc; text-decoration:none; }
-        a:hover { text-decoration:underline; }
-        .back { margin-bottom:16px; display:inline-block; }
+
+        .container {
+            max-width: 800px;
+            margin: 0 auto;
+        }
+
+        h1 {
+            font-size: 1.4rem;
+            margin-bottom: 20px;
+        }
+
+        a {
+            color: #a5b4fc;
+            text-decoration: none;
+        }
+
+        a:hover {
+            text-decoration: underline;
+        }
+
+        .back {
+            margin-bottom: 16px;
+            display: inline-block;
+        }
+
         .count-badge {
-            font-size:0.8rem; color:#94a3b8;
-            margin-bottom:12px; display:block;
+            font-size: 0.8rem;
+            color: #94a3b8;
+            margin-bottom: 12px;
+            display: block;
         }
-        .list { list-style:none; }
+
+        .list {
+            list-style: none;
+        }
+
         .list li {
-            background:rgba(255,255,255,0.06);
-            border:1px solid rgba(255,255,255,0.1);
-            border-radius:10px; padding:12px 18px; margin-bottom:8px;
-            display:flex; justify-content:space-between; align-items:center;
-            transition:background .2s;
+            background: rgba(255, 255, 255, 0.06);
+            border: 1px solid rgba(255, 255, 255, 0.1);
+            border-radius: 10px;
+            padding: 12px 18px;
+            margin-bottom: 8px;
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            transition: background .2s;
         }
-        .list li:hover { background:rgba(255,255,255,0.1); }
-        .list .date-label { font-size:0.9rem; }
-        .list .view-link { font-size:0.85rem; font-weight:500; }
-        .empty { text-align:center; padding:40px; color:#94a3b8; }
+
+        .list li:hover {
+            background: rgba(255, 255, 255, 0.1);
+        }
+
+        .list .date-label {
+            font-size: 0.9rem;
+        }
+
+        .list .view-link {
+            font-size: 0.85rem;
+            font-weight: 500;
+        }
+
+        .empty {
+            text-align: center;
+            padding: 40px;
+            color: #94a3b8;
+        }
     </style>
 </head>
-<body>
-<div class="container">
-    <a href="/" class="back">← 대시보드로 돌아가기</a>
-    <h1>📁 분석 히스토리</h1>
 
-    {% if dates %}
-    <span class="count-badge">최근 {{ dates|length }}개 기록</span>
-    <ul class="list">
-        {% for d in dates %}
-        <li>
-            <span class="date-label">📄 {{ d.label }}</span>
-            <a href="/history/{{ d.key }}" class="view-link">보기 →</a>
-        </li>
-        {% endfor %}
-    </ul>
-    {% else %}
-    <div class="empty">
-        <p>저장된 분석 기록이 없습니다.</p>
-        <p style="margin-top:8px;font-size:0.85rem;">대시보드에서 「새로 분석」을 실행하면 자동 저장됩니다.</p>
+<body>
+    <div class="container">
+        <a href="/" class="back">← 대시보드로 돌아가기</a>
+        <h1>📁 분석 히스토리</h1>
+
+        {% if dates %}
+        <span class="count-badge">최근 {{ dates|length }}개 기록</span>
+        <ul class="list">
+            {% for d in dates %}
+            <li>
+                <span class="date-label">📄 {{ d.label }}</span>
+                <a href="/history/{{ d.key }}" class="view-link">보기 →</a>
+            </li>
+            {% endfor %}
+        </ul>
+        {% else %}
+        <div class="empty">
+            <p>저장된 분석 기록이 없습니다.</p>
+            <p style="margin-top:8px;font-size:0.85rem;">대시보드에서 「새로 분석」을 실행하면 자동 저장됩니다.</p>
+        </div>
+        {% endif %}
     </div>
-    {% endif %}
-</div>
 </body>
+
 </html>
