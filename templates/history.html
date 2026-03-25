@@ -4,112 +4,122 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>분석 히스토리</title>
+    <title>히스토리 — S&P 500 + SOX Scanner</title>
     <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
     <style>
         * {
             margin: 0;
             padding: 0;
-            box-sizing: border-box;
+            box-sizing: border-box
         }
 
         body {
-            font-family: 'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+            font-family: 'Inter', system-ui, sans-serif;
             background: linear-gradient(135deg, #0f0c29, #302b63, #24243e);
             color: #e0e0e0;
-            min-height: 100vh;
-            padding: 20px;
+            min-height: 100vh
         }
 
         .container {
-            max-width: 800px;
+            max-width: 900px;
             margin: 0 auto;
+            padding: 24px
         }
 
         h1 {
             font-size: 1.4rem;
-            margin-bottom: 20px;
+            background: linear-gradient(90deg, #a78bfa, #818cf8);
+            -webkit-background-clip: text;
+            -webkit-text-fill-color: transparent;
+            margin-bottom: 20px
         }
 
         a {
-            color: #a5b4fc;
-            text-decoration: none;
+            color: #a78bfa;
+            text-decoration: none
         }
 
         a:hover {
-            text-decoration: underline;
+            text-decoration: underline
         }
 
         .back {
-            margin-bottom: 16px;
-            display: inline-block;
+            font-size: .9rem;
+            margin-bottom: 20px;
+            display: inline-block
         }
 
-        .count-badge {
-            font-size: 0.8rem;
-            color: #94a3b8;
+        .section {
+            margin-bottom: 32px
+        }
+
+        .section-title {
+            font-size: 1rem;
+            font-weight: 700;
             margin-bottom: 12px;
-            display: block;
+            padding-left: 8px;
+            border-left: 3px solid #8b5cf6
+        }
+
+        .section-title.pre {
+            border-left-color: #f59e0b
         }
 
         .list {
-            list-style: none;
+            list-style: none
         }
 
         .list li {
-            background: rgba(255, 255, 255, 0.06);
-            border: 1px solid rgba(255, 255, 255, 0.1);
-            border-radius: 10px;
-            padding: 12px 18px;
-            margin-bottom: 8px;
-            display: flex;
-            justify-content: space-between;
-            align-items: center;
-            transition: background .2s;
+            margin-bottom: 6px
         }
 
-        .list li:hover {
-            background: rgba(255, 255, 255, 0.1);
+        .list a {
+            display: block;
+            padding: 10px 16px;
+            background: rgba(255, 255, 255, .06);
+            border-radius: 8px;
+            border: 1px solid rgba(255, 255, 255, .08);
+            transition: .2s;
+            font-size: .9rem
         }
 
-        .list .date-label {
-            font-size: 0.9rem;
+        .list a:hover {
+            background: rgba(139, 92, 246, .15);
+            border-color: rgba(139, 92, 246, .3);
+            text-decoration: none
         }
 
-        .list .view-link {
-            font-size: 0.85rem;
-            font-weight: 500;
+        .list a.pre:hover {
+            background: rgba(245, 158, 11, .15);
+            border-color: rgba(245, 158, 11, .3)
         }
 
         .empty {
-            text-align: center;
-            padding: 40px;
-            color: #94a3b8;
+            color: #666;
+            padding: 20px;
+            text-align: center
         }
     </style>
 </head>
 
 <body>
     <div class="container">
-        <a href="/" class="back">← 대시보드로 돌아가기</a>
+        <a href="/" class="back">← 대시보드로</a>
         <h1>📁 분석 히스토리</h1>
-
-        {% if dates %}
-        <span class="count-badge">최근 {{ dates|length }}개 기록</span>
-        <ul class="list">
-            {% for d in dates %}
-            <li>
-                <span class="date-label">📄 {{ d.label }}</span>
-                <a href="/history/{{ d.key }}" class="view-link">보기 →</a>
-            </li>
-            {% endfor %}
-        </ul>
-        {% else %}
-        <div class="empty">
-            <p>저장된 분석 기록이 없습니다.</p>
-            <p style="margin-top:8px;font-size:0.85rem;">대시보드에서 「새로 분석」을 실행하면 자동 저장됩니다.</p>
+        <div class="section">
+            <div class="section-title">🚀 모멘텀 분석</div>
+            {% if momentum_dates %}
+            <ul class="list">{% for d in momentum_dates %}<li><a href="/history/momentum/{{ d.name }}">📊 {{ d.label
+                        }}</a></li>{% endfor %}</ul>
+            {% else %}<div class="empty">모멘텀 히스토리 없음</div>{% endif %}
         </div>
-        {% endif %}
+        <div class="section">
+            <div class="section-title pre">🔮 선행 신호 스캔</div>
+            {% if presignal_dates %}
+            <ul class="list">{% for d in presignal_dates %}<li><a class="pre" href="/history/presignal/{{ d.name }}">🔮
+                        {{ d.label }}</a></li>{% endfor %}</ul>
+            {% else %}<div class="empty">선행 신호 히스토리 없음</div>{% endif %}
+        </div>
     </div>
 </body>
 

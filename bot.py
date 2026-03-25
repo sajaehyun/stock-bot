@@ -1,9 +1,9 @@
 """
-S&P 500 Momentum Scanner
-─────────────────────────
-Data: Finnhub (primary) → yfinance (fallback)
-Candidates: Finviz → yfinance 개별 → Finnhub quote
-Secrets: .env only (no hard-coded keys)
+S&P 500 + Semiconductor Momentum Scanner + Pre-Signal Scanner
+──────────────────────────────────────────────────────────────
+Mode 1 (analyze):            당일 상승 종목 → 기술적 점수화
+Mode 2 (analyze_presignal):  전체 스캔 → "곧 움직일" 선행 신호 탐색
+Universes: S&P 500 / SOX (반도체 30)
 """
 
 import os
@@ -35,15 +35,18 @@ MAX_WORKERS     = 5
 MAX_TICKERS     = 30
 RAW_SCORE_MAX   = 140
 RAW_SCORE_MIN   = -80
-RAW_SCORE_RANGE = RAW_SCORE_MAX - RAW_SCORE_MIN   # 220
+RAW_SCORE_RANGE = RAW_SCORE_MAX - RAW_SCORE_MIN  # 220
 FINNHUB_BASE    = "https://finnhub.io/api/v1"
 FINNHUB_DELAY   = 1.1
 HISTORY_DIR     = pathlib.Path("history")
 HISTORY_DIR.mkdir(exist_ok=True)
 HISTORY_TS_FMT  = "%Y-%m-%d_%H%M%S"
 
+PRESIGNAL_DIR = pathlib.Path("presignal")
+PRESIGNAL_DIR.mkdir(exist_ok=True)
+PRESIGNAL_MAX_RESULTS = 20
 
-# S&P 500 대표 종목 하드코딩 (Wikipedia/index API 대체)
+# ──────────────────────────── 종목 유니버스 ────────────────────────
 SP500_SYMBOLS = [
     "AAPL","MSFT","NVDA","AMZN","META","GOOGL","GOOG","BRK-B","LLY","AVGO",
     "JPM","TSLA","UNH","V","XOM","MA","JNJ","PG","COST","HD",
@@ -56,6 +59,19 @@ SP500_SYMBOLS = [
     "CI","ICE","NOC","GD","MET","TGT","F","GM","UBER","NOW",
     "PANW","SNOW","COIN","PLTR","ARM","SMCI","DELL","HPQ","MU","QCOM",
 ]
+
+# SOX (필라델피아 반도체 지수) 30 구성 종목
+SOX_SYMBOLS = [
+    "NVDA","AVGO","AMD","INTC","QCOM","TSM","MU","ASML","AMAT","LRCX",
+    "KLAC","ADI","TXN","NXPI","MRVL","ON","SWKS","MCHP","ARM","MPWR",
+    "COHR","ENTG","TER","GFS","CRDO","ALAB","MTSI","NVMI","QRVO","RMBS",
+]
+
+UNIVERSE_MAP = {
+    "sp500":      {"name": "S&P 500",     "symbols": SP500_SYMBOLS},
+    "sox":        {"name": "반도체 (SOX)", "symbols": SOX_SYMBOLS},
+    "sp500+sox":  {"name": "S&P 500 + SOX", "symbols": list(dict.fromkeys(SP500_SYMBOLS + SOX_SYMBOLS))},
+}
 
 # 한글 매핑
 CLOUD_STATUS_KO = {
@@ -79,7 +95,6 @@ logging.basicConfig(
 )
 log = logging.getLogger(__name__)
 
-# yfinance 호환성 체크
 _YF_AVAILABLE    = False
 _YF_SUPPORTS_MLI = False
 try:
@@ -188,7 +203,7 @@ def _finnhub_get(endpoint: str, params: dict, retries: int = 3):
 
 
 # ═══════════════════════════════════════════════════════════════════
-# OHLCV (Finnhub → yfinance fallback)
+# OHLCV
 # ═══════════════════════════════════════════════════════════════════
 
 def _finnhub_candles(ticker: str, days: int = 730) -> pd.DataFrame | None:
@@ -219,7 +234,6 @@ def _finnhub_candles(ticker: str, days: int = 730) -> pd.DataFrame | None:
 
 
 def _yfinance_candles(ticker: str) -> pd.DataFrame | None:
-    """yfinance Ticker 객체로 2년 일봉 다운로드 (MultiIndex 완전 우회)."""
     if not _YF_AVAILABLE:
         return None
     try:
@@ -228,41 +242,28 @@ def _yfinance_candles(ticker: str) -> pd.DataFrame | None:
         if raw is None or raw.empty:
             return None
 
-        # Ticker.history()는 항상 단순 컬럼 반환 (MultiIndex 없음)
         df = raw.copy()
-
-        # 컬럼 이름 정규화
         rename = {}
         for c in df.columns:
             cl = str(c).lower().strip()
-            if cl == "close":
-                rename[c] = "Close"
-            elif cl == "open":
-                rename[c] = "Open"
-            elif cl == "high":
-                rename[c] = "High"
-            elif cl == "low":
-                rename[c] = "Low"
-            elif cl == "volume":
-                rename[c] = "Volume"
+            if cl == "close":   rename[c] = "Close"
+            elif cl == "open":  rename[c] = "Open"
+            elif cl == "high":  rename[c] = "High"
+            elif cl == "low":   rename[c] = "Low"
+            elif cl == "volume":rename[c] = "Volume"
         df = df.rename(columns=rename)
 
         if "Close" not in df.columns:
             return None
-
-        # 혹시라도 중복 컬럼 방어
         if df.columns.duplicated().any():
             df = df.loc[:, ~df.columns.duplicated(keep="first")]
-
         return df if len(df) >= 40 else None
-
     except Exception as e:
         log.warning("yfinance 다운로드 오류 [%s]: %s", ticker, e)
         return None
 
 
 def fetch_ohlcv(ticker: str) -> pd.DataFrame | None:
-    """Finnhub 우선, 실패 시 yfinance fallback."""
     df = _finnhub_candles(ticker)
     if df is not None:
         return df
@@ -273,27 +274,21 @@ def fetch_ohlcv(ticker: str) -> pd.DataFrame | None:
 
 
 # ═══════════════════════════════════════════════════════════════════
-# 종목 수집 (3중 폴백)
+# 종목 수집 (모멘텀용 3중 폴백)
 # ═══════════════════════════════════════════════════════════════════
 
 def fetch_finviz_sp500_gainers() -> list:
-    """1순위: Finviz 스크리너."""
     if not _FV_AVAILABLE:
         return []
     try:
         foverview = Overview()
         try:
-            foverview.set_filter(
-                signal="Top Gainers",
-                filters_dict={"Index": "S&P 500"},
-            )
+            foverview.set_filter(signal="Top Gainers", filters_dict={"Index": "S&P 500"})
         except (TypeError, AttributeError):
             foverview.set_filter(filters_dict={"Index": "S&P 500"})
-
         df = foverview.screener_view()
         if df is None or df.empty:
             return []
-
         results = []
         for _, row in df.head(MAX_TICKERS).iterrows():
             ticker = str(row.get("Ticker", "")).strip().upper()
@@ -313,19 +308,16 @@ def fetch_finviz_sp500_gainers() -> list:
 
 
 def _fetch_yfinance_batch_fallback() -> list:
-    """2순위: yfinance batch download → MultiIndex 안전 처리."""
     if not _YF_AVAILABLE or not SP500_SYMBOLS:
         return []
     try:
         kw = {"period": "5d", "interval": "1d", "auto_adjust": True, "progress": False}
         if _YF_SUPPORTS_MLI:
             kw["multi_level_index"] = False
-
         raw = yf.download(SP500_SYMBOLS, **kw)
         if raw is None or raw.empty:
             return []
 
-        # MultiIndex에서 Close 추출
         if isinstance(raw.columns, pd.MultiIndex):
             if "Close" in raw.columns.get_level_values(0):
                 close = raw["Close"].copy()
@@ -336,16 +328,14 @@ def _fetch_yfinance_batch_fallback() -> list:
         else:
             return []
 
-        # DataFrame인지 확인 (단일 종목이면 Series)
         if isinstance(close, pd.Series):
             return []
-
         if len(close) < 2:
             return []
 
         last = close.iloc[-1]
         prev = close.iloc[-2]
-        chg = ((last - prev) / prev * 100).dropna().sort_values(ascending=False)
+        chg  = ((last - prev) / prev * 100).dropna().sort_values(ascending=False)
 
         results = []
         for sym in chg.head(MAX_TICKERS).index:
@@ -359,44 +349,26 @@ def _fetch_yfinance_batch_fallback() -> list:
                 "finviz_price":  round(price_val, 2),
                 "finviz_change": round(chg_val, 2),
             })
-
         log.info("yfinance batch 폴백: %d 종목", len(results))
         return results
-
     except Exception as e:
         log.warning("yfinance batch 폴백 오류: %s", e)
         return []
 
-def _fetch_finnhub_sp500_fallback() -> list:
-    """
-    3순위: Finnhub quote API 폴백.
-    /index/constituents 는 무료 플랜 미지원 →
-    SP500_SYMBOLS 하드코딩 리스트 + /quote 엔드포인트 사용.
-    """
-    if not FINNHUB_API_KEY:
-        log.warning("FINNHUB_API_KEY 미설정 → Finnhub 폴백 스킵")
-        return []
 
-    def _fetch_quote(sym: str):
+def _fetch_finnhub_sp500_fallback() -> list:
+    if not FINNHUB_API_KEY:
+        return []
+    def _fetch_quote(sym):
         q = _finnhub_get("quote", {"symbol": sym})
         if q and q.get("c", 0) > 0 and q.get("pc", 0) > 0:
             chg = (q["c"] - q["pc"]) / q["pc"] * 100
-            return {
-                "ticker":        sym,
-                "company":       sym,
-                "finviz_price":  round(q["c"], 2),
-                "finviz_change": round(chg, 2),
-            }
+            return {"ticker": sym, "company": sym,
+                    "finviz_price": round(q["c"], 2), "finviz_change": round(chg, 2)}
         return None
-
     with ThreadPoolExecutor(max_workers=3) as ex:
         raw = list(ex.map(_fetch_quote, SP500_SYMBOLS))
-
-    quotes = sorted(
-        [r for r in raw if r],
-        key=lambda x: x["finviz_change"],
-        reverse=True,
-    )
+    quotes = sorted([r for r in raw if r], key=lambda x: x["finviz_change"], reverse=True)
     result = quotes[:MAX_TICKERS]
     log.info("Finnhub 폴백: %d 종목", len(result))
     return result
@@ -420,15 +392,12 @@ def compute_indicators(ticker: str) -> dict | None:
         return None
 
     try:
-        close  = pd.Series(df["Close"].values,  index=df.index, dtype=float)
-        high   = pd.Series(df["High"].values,   index=df.index, dtype=float)
-        low    = pd.Series(df["Low"].values,    index=df.index, dtype=float)
-        volume = pd.Series(df["Volume"].values, index=df.index, dtype=float)
+        close  = pd.Series(df["Close"].values.flatten(),  index=df.index, dtype=float)
+        high   = pd.Series(df["High"].values.flatten(),   index=df.index, dtype=float)
+        low    = pd.Series(df["Low"].values.flatten(),    index=df.index, dtype=float)
+        volume = pd.Series(df["Volume"].values.flatten(), index=df.index, dtype=float)
 
-
-
-        # 현재가 / 1일 변화율
-        price = round(safe_float(close.iloc[-1]), 2)
+        price     = round(safe_float(close.iloc[-1]), 2)
         change_1d = 0.0
         if len(close) >= 2:
             prev = safe_float(close.iloc[-2])
@@ -437,130 +406,91 @@ def compute_indicators(ticker: str) -> dict | None:
 
         result = {"price": price, "change_1d": change_1d}
 
-        # ── RSI (14) — Wilder's EMA ──────────────────────────────
+        # RSI (14) — Wilder's EMA
         if len(close) >= 15:
-            delta     = close.diff()
-            gain      = delta.clip(lower=0)
-            loss      = (-delta).clip(lower=0)
-            avg_gain  = gain.ewm(alpha=1 / 14, adjust=False).mean()
-            avg_loss  = loss.ewm(alpha=1 / 14, adjust=False).mean()
-            last_gain = safe_float(avg_gain.iloc[-1])
-            last_loss = safe_float(avg_loss.iloc[-1])
-            if last_gain == 0 and last_loss == 0:
-                rsi = 50.0
-            elif last_loss == 0:
-                rsi = 100.0
-            elif last_gain == 0:
-                rsi = 0.0
-            else:
-                rs  = last_gain / last_loss
-                rsi = round(100 - 100 / (1 + rs), 2)
+            delta    = close.diff()
+            gain     = delta.clip(lower=0)
+            loss     = (-delta).clip(lower=0)
+            avg_gain = gain.ewm(alpha=1/14, adjust=False).mean()
+            avg_loss = loss.ewm(alpha=1/14, adjust=False).mean()
+            lg, ll   = safe_float(avg_gain.iloc[-1]), safe_float(avg_loss.iloc[-1])
+            if lg == 0 and ll == 0:   rsi = 50.0
+            elif ll == 0:             rsi = 100.0
+            elif lg == 0:             rsi = 0.0
+            else:                     rsi = round(100 - 100 / (1 + lg / ll), 2)
             result["rsi"] = rsi
         else:
             result["rsi"] = 50.0
 
-        # ── MACD (12/26/9) ───────────────────────────────────────
+        # MACD (12/26/9)
         if len(close) >= 35:
-            ema12       = close.ewm(span=12, adjust=False).mean()
-            ema26       = close.ewm(span=26, adjust=False).mean()
-            macd_line   = ema12 - ema26
-            signal_line = macd_line.ewm(span=9, adjust=False).mean()
-            result["macd"]           = round(safe_float(macd_line.iloc[-1]),   4)
-            result["macd_signal"]    = round(safe_float(signal_line.iloc[-1]), 4)
-            result["macd_histogram"] = round(
-                safe_float(macd_line.iloc[-1]) - safe_float(signal_line.iloc[-1]), 4
-            )
+            ema12   = close.ewm(span=12, adjust=False).mean()
+            ema26   = close.ewm(span=26, adjust=False).mean()
+            macd_l  = ema12 - ema26
+            sig_l   = macd_l.ewm(span=9, adjust=False).mean()
+            result["macd"]           = round(safe_float(macd_l.iloc[-1]), 4)
+            result["macd_signal"]    = round(safe_float(sig_l.iloc[-1]),  4)
+            result["macd_histogram"] = round(safe_float(macd_l.iloc[-1]) - safe_float(sig_l.iloc[-1]), 4)
         else:
             result["macd"] = result["macd_signal"] = result["macd_histogram"] = 0.0
 
-        # ── 이동평균 (20 / 50 / 200) ─────────────────────────────
-        for period in [20, 50, 200]:
-            if len(close) >= period:
-                result[f"ma{period}"] = round(
-                    safe_float(close.rolling(period).mean().iloc[-1]), 2
-                )
-            else:
-                result[f"ma{period}"] = price
+        # 이동평균 (20/50/200)
+        for p in [20, 50, 200]:
+            result[f"ma{p}"] = round(safe_float(close.rolling(p).mean().iloc[-1]), 2) if len(close) >= p else price
 
-        # MA 트렌드
         if result["ma20"] > result["ma50"] > result["ma200"]:
-            result["ma_trend"]     = MA_TREND_KO["bullish"]
-            result["ma_trend_raw"] = "bullish"
+            result["ma_trend"] = MA_TREND_KO["bullish"]; result["ma_trend_raw"] = "bullish"
         else:
-            result["ma_trend"]     = MA_TREND_KO["bearish"]
-            result["ma_trend_raw"] = "bearish"
+            result["ma_trend"] = MA_TREND_KO["bearish"]; result["ma_trend_raw"] = "bearish"
 
-        # 골든 / 데드 크로스
-        result["golden_cross"] = False
-        result["dead_cross"]   = False
+        result["golden_cross"] = result["dead_cross"] = False
         if len(close) >= 50:
-            ma20_s = close.rolling(20).mean()
-            ma50_s = close.rolling(50).mean()
+            ma20_s, ma50_s = close.rolling(20).mean(), close.rolling(50).mean()
             if len(ma20_s) >= 2:
                 p20, c20 = safe_float(ma20_s.iloc[-2]), safe_float(ma20_s.iloc[-1])
                 p50, c50 = safe_float(ma50_s.iloc[-2]), safe_float(ma50_s.iloc[-1])
-                if p20 <= p50 and c20 > c50:
-                    result["golden_cross"] = True
-                if p20 >= p50 and c20 < c50:
-                    result["dead_cross"] = True
+                if p20 <= p50 and c20 > c50: result["golden_cross"] = True
+                if p20 >= p50 and c20 < c50: result["dead_cross"]   = True
 
-        # ── Stochastic %K / %D ───────────────────────────────────
+        # Stochastic %K/%D
         if len(close) >= 14:
-            low14   = low.rolling(14).min()
-            high14  = high.rolling(14).max()
-            denom   = (high14 - low14).replace(0, np.nan)
-            raw_k   = (close - low14) / denom * 100
-            stoch_d = raw_k.rolling(3).mean()
-            result["stoch_k"] = round(safe_float(raw_k.iloc[-1],   50.0), 2)
-            result["stoch_d"] = round(safe_float(stoch_d.iloc[-1], 50.0), 2)
+            low14  = low.rolling(14).min(); high14 = high.rolling(14).max()
+            denom  = (high14 - low14).replace(0, np.nan)
+            raw_k  = (close - low14) / denom * 100
+            result["stoch_k"] = round(safe_float(raw_k.iloc[-1], 50.0), 2)
+            result["stoch_d"] = round(safe_float(raw_k.rolling(3).mean().iloc[-1], 50.0), 2)
         else:
             result["stoch_k"] = result["stoch_d"] = 50.0
 
-        # ── Ichimoku Cloud (shift 26) ─────────────────────────────
+        # Ichimoku Cloud (shift 26)
         if len(close) >= 52:
-            tenkan = (high.rolling(9).max()  + low.rolling(9).min())  / 2
+            tenkan = (high.rolling(9).max() + low.rolling(9).min()) / 2
             kijun  = (high.rolling(26).max() + low.rolling(26).min()) / 2
             span_a = ((tenkan + kijun) / 2).shift(26)
             span_b = ((high.rolling(52).max() + low.rolling(52).min()) / 2).shift(26)
-            last_a = safe_float(span_a.iloc[-1], price)
-            last_b = safe_float(span_b.iloc[-1], price)
-            cloud_top    = max(last_a, last_b)
-            cloud_bottom = min(last_a, last_b)
-            result["cloud_top"]    = round(cloud_top,    2)
-            result["cloud_bottom"] = round(cloud_bottom, 2)
-            if price > cloud_top:
-                cloud_raw = "above"
-            elif price < cloud_bottom:
-                cloud_raw = "below"
-            else:
-                cloud_raw = "inside"
-            result["cloud_status"]     = CLOUD_STATUS_KO[cloud_raw]
-            result["cloud_status_raw"] = cloud_raw
+            la, lb = safe_float(span_a.iloc[-1], price), safe_float(span_b.iloc[-1], price)
+            ct, cb = max(la, lb), min(la, lb)
+            result["cloud_top"] = round(ct, 2); result["cloud_bottom"] = round(cb, 2)
+            if price > ct:   cr = "above"
+            elif price < cb: cr = "below"
+            else:            cr = "inside"
+            result["cloud_status"] = CLOUD_STATUS_KO[cr]; result["cloud_status_raw"] = cr
         else:
-            result["cloud_top"]        = price
-            result["cloud_bottom"]     = price
-            result["cloud_status"]     = CLOUD_STATUS_KO["inside"]
-            result["cloud_status_raw"] = "inside"
+            result["cloud_top"] = result["cloud_bottom"] = price
+            result["cloud_status"] = CLOUD_STATUS_KO["inside"]; result["cloud_status_raw"] = "inside"
 
-        # ── 20D VWAP (rolling sum) ───────────────────────────────
+        # 20D VWAP
         if len(close) >= 20:
             tp      = (high + low + close) / 3
-            tp_vol  = tp * volume
             vol_sum = volume.rolling(20).sum().replace(0, np.nan)
-            vwap_s  = tp_vol.rolling(20).sum() / vol_sum
-            result["vwap"] = round(safe_float(vwap_s.iloc[-1], price), 2)
+            result["vwap"] = round(safe_float((tp * volume).rolling(20).sum().div(vol_sum).iloc[-1], price), 2)
         else:
             result["vwap"] = price
 
-        # ── ATR (14) ─────────────────────────────────────────────
+        # ATR (14)
         if len(close) >= 15:
-            tr = pd.concat([
-                high - low,
-                (high - close.shift(1)).abs(),
-                (low  - close.shift(1)).abs(),
-            ], axis=1).max(axis=1)
-            atr = safe_float(tr.rolling(14).mean().iloc[-1], price * 0.01)
-            atr = max(atr, price * 0.01)
+            tr  = pd.concat([high - low, (high - close.shift(1)).abs(), (low - close.shift(1)).abs()], axis=1).max(axis=1)
+            atr = max(safe_float(tr.rolling(14).mean().iloc[-1], price * 0.01), price * 0.01)
         else:
             atr = price * 0.02
         result["atr"]       = round(atr, 2)
@@ -568,13 +498,61 @@ def compute_indicators(ticker: str) -> dict | None:
         result["target_2"]  = round(price + atr * 3.0, 2)
         result["stop_loss"] = round(price - atr * 1.5, 2)
 
-        # ── 거래량 비율 ──────────────────────────────────────────
+        # 거래량 비율
         if len(volume) >= 21:
-            avg_vol  = safe_float(volume.rolling(20).mean().iloc[-1], 1)
-            last_vol = safe_float(volume.iloc[-1])
-            result["volume_ratio"] = round(last_vol / avg_vol, 2) if avg_vol > 0 else 1.0
+            avg_vol = safe_float(volume.rolling(20).mean().iloc[-1], 1)
+            result["volume_ratio"] = round(safe_float(volume.iloc[-1]) / avg_vol, 2) if avg_vol > 0 else 1.0
         else:
             result["volume_ratio"] = 1.0
+
+        # ── 선행 신호용 추가 지표 ────────────────────────────────
+        # 볼린저 밴드
+        if len(close) >= 20:
+            ma20_bb = close.rolling(20).mean(); std20 = close.rolling(20).std()
+            result["bb_upper"] = round(safe_float(ma20_bb.iloc[-1] + 2*std20.iloc[-1]), 2)
+            result["bb_lower"] = round(safe_float(ma20_bb.iloc[-1] - 2*std20.iloc[-1]), 2)
+            bb_w = (4 * std20 / ma20_bb * 100).dropna()
+            result["bb_width"] = round(safe_float(bb_w.iloc[-1]), 2) if len(bb_w) > 0 else 0
+            if len(bb_w) >= 120:
+                result["bb_width_percentile"] = round((bb_w.tail(120) < safe_float(bb_w.iloc[-1])).sum() / 120 * 100, 1)
+            else:
+                result["bb_width_percentile"] = 50.0
+        else:
+            result["bb_upper"] = result["bb_lower"] = price; result["bb_width"] = 0; result["bb_width_percentile"] = 50.0
+
+        # ATR 백분위
+        if len(close) >= 15:
+            tr_s   = pd.concat([high - low, (high - close.shift(1)).abs(), (low - close.shift(1)).abs()], axis=1).max(axis=1)
+            atr_s  = tr_s.rolling(14).mean().dropna()
+            if len(atr_s) >= 120:
+                result["atr_percentile"] = round((atr_s.tail(120) < safe_float(atr_s.iloc[-1])).sum() / 120 * 100, 1)
+            else:
+                result["atr_percentile"] = 50.0
+        else:
+            result["atr_percentile"] = 50.0
+
+        # MACD 히스토그램 전환
+        result["macd_cross_up"] = result["macd_cross_down"] = result["macd_approaching_zero"] = False
+        if len(close) >= 35:
+            ema12_s  = close.ewm(span=12, adjust=False).mean()
+            ema26_s  = close.ewm(span=26, adjust=False).mean()
+            hist_s   = ema12_s - ema26_s - (ema12_s - ema26_s).ewm(span=9, adjust=False).mean()
+            if len(hist_s) >= 3:
+                h1, h2, h3 = safe_float(hist_s.iloc[-3]), safe_float(hist_s.iloc[-2]), safe_float(hist_s.iloc[-1])
+                result["macd_cross_up"]         = (h2 <= 0 and h3 > 0) or (h1 < h2 < 0 and h3 > h2)
+                result["macd_cross_down"]       = (h2 >= 0 and h3 < 0)
+                result["macd_approaching_zero"] = (h3 < 0 and h3 > h2 and h2 > h1)
+
+        # 골든크로스 임박
+        result["golden_cross_approaching"] = False; result["ma50_ma200_gap"] = 0.0
+        if len(close) >= 200:
+            mv50 = safe_float(close.rolling(50).mean().iloc[-1])
+            mv200 = safe_float(close.rolling(200).mean().iloc[-1])
+            if mv200 > 0:
+                gap = (mv50 - mv200) / mv200 * 100
+                result["ma50_ma200_gap"] = round(gap, 2)
+                if -3.0 < gap < 0:
+                    result["golden_cross_approaching"] = True
 
         return result
 
@@ -584,111 +562,130 @@ def compute_indicators(ticker: str) -> dict | None:
 
 
 # ═══════════════════════════════════════════════════════════════════
-# 점수 · 진입 상태
+# 모멘텀 점수
 # ═══════════════════════════════════════════════════════════════════
 
 def compute_score_and_status(ind: dict, fv: dict) -> dict:
-    raw     = 0
-    signals = []
-
-    # RSI (+20 / -20)
+    raw = 0; signals = []
     rsi = ind.get("rsi", 50)
-    if rsi < 30:
-        raw += 20; signals.append("✅ RSI 과매도")
-    elif rsi < 40:
-        raw += 10; signals.append("✅ RSI 약세 반등 구간")
-    elif rsi > 80:
-        raw -= 20; signals.append("⚠️ RSI 과열")
-    elif rsi > 70:
-        raw -= 10; signals.append("⚠️ RSI 고열 구간")
+    if rsi < 30:     raw += 20; signals.append("✅ RSI 과매도")
+    elif rsi < 40:   raw += 10; signals.append("✅ RSI 약세 반등 구간")
+    elif rsi > 80:   raw -= 20; signals.append("⚠️ RSI 과열")
+    elif rsi > 70:   raw -= 10; signals.append("⚠️ RSI 고열 구간")
 
-    # MACD ATR 비율 (+20 / -15)
-    macd      = ind.get("macd", 0)
-    atr       = ind.get("atr", 1)
-    macd_norm = macd / atr if atr > 0 else 0
-    if macd_norm > 0.5:
-        raw += 20; signals.append("✅ MACD 강한 상승")
-    elif macd_norm > 0:
-        raw += 10; signals.append("✅ MACD 약한 상승")
-    elif macd_norm > -0.5:
-        raw -= 5;  signals.append("⚠️ MACD 약한 하락")
-    else:
-        raw -= 15; signals.append("⚠️ MACD 하락")
+    atr = ind.get("atr", 1); mn = ind.get("macd", 0) / atr if atr > 0 else 0
+    if mn > 0.5:     raw += 20; signals.append("✅ MACD 강한 상승")
+    elif mn > 0:     raw += 10; signals.append("✅ MACD 약한 상승")
+    elif mn > -0.5:  raw -= 5;  signals.append("⚠️ MACD 약한 하락")
+    else:            raw -= 15; signals.append("⚠️ MACD 하락")
 
-    # 가격 vs MA20 (+15 / -10)
-    price = ind.get("price", 0)
-    ma20  = ind.get("ma20", price)
+    price = ind.get("price", 0); ma20 = ind.get("ma20", price)
     if price > 0 and ma20 > 0:
-        if price > ma20:
-            raw += 15; signals.append("✅ 가격 > MA20")
-        else:
-            raw -= 10; signals.append("⚠️ 가격 < MA20")
+        if price > ma20: raw += 15; signals.append("✅ 가격 > MA20")
+        else:            raw -= 10; signals.append("⚠️ 가격 < MA20")
 
-    # MA 트렌드 (+15 / -10)
-    if ind.get("ma_trend_raw") == "bullish":
-        raw += 15; signals.append("✅ MA 정배열")
-    else:
-        raw -= 10; signals.append("⚠️ MA 역배열")
+    if ind.get("ma_trend_raw") == "bullish": raw += 15; signals.append("✅ MA 정배열")
+    else:                                    raw -= 10; signals.append("⚠️ MA 역배열")
 
-    # 골든 / 데드 크로스 (+20 / -10)
-    if ind.get("golden_cross"):
-        raw += 20; signals.append("✅ 골든크로스")
-    if ind.get("dead_cross"):
-        raw -= 10; signals.append("⚠️ 데드크로스")
+    if ind.get("golden_cross"): raw += 20; signals.append("✅ 골든크로스")
+    if ind.get("dead_cross"):   raw -= 10; signals.append("⚠️ 데드크로스")
 
-    # Ichimoku (+15 / -10)
-    cloud_raw = ind.get("cloud_status_raw", "inside")
-    if cloud_raw == "above":
-        raw += 15; signals.append("✅ 구름 위")
-    elif cloud_raw == "below":
-        raw -= 10; signals.append("⚠️ 구름 아래")
-    else:
-        signals.append("⏳ 구름 안")
+    cr = ind.get("cloud_status_raw", "inside")
+    if cr == "above":   raw += 15; signals.append("✅ 구름 위")
+    elif cr == "below": raw -= 10; signals.append("⚠️ 구름 아래")
+    else:               signals.append("⏳ 구름 안")
 
-    # Stochastic (+10 / -5)
-    stoch_k = ind.get("stoch_k", 50)
-    if stoch_k < 20:
-        raw += 10; signals.append("✅ Stoch 과매도")
-    elif stoch_k > 80:
-        raw -= 5;  signals.append("⚠️ Stoch 과열")
+    sk = ind.get("stoch_k", 50)
+    if sk < 20:   raw += 10; signals.append("✅ Stoch 과매도")
+    elif sk > 80: raw -= 5;  signals.append("⚠️ Stoch 과열")
 
-    # VWAP (+10)
     vwap = ind.get("vwap", price)
-    if price > 0 and vwap > 0 and price > vwap:
-        raw += 10; signals.append("✅ 가격 > VWAP")
+    if price > 0 and vwap > 0 and price > vwap: raw += 10; signals.append("✅ 가격 > VWAP")
 
-    # 거래량 (+10 / +5)
-    vol_ratio = ind.get("volume_ratio", 1.0)
-    if vol_ratio >= 2.0:
-        raw += 10; signals.append(f"✅ 거래량 급증 ({vol_ratio}x)")
-    elif vol_ratio >= 1.5:
-        raw += 5;  signals.append(f"✅ 거래량 증가 ({vol_ratio}x)")
+    vr = ind.get("volume_ratio", 1.0)
+    if vr >= 2.0:   raw += 10; signals.append(f"✅ 거래량 급증 ({vr}x)")
+    elif vr >= 1.5: raw += 5;  signals.append(f"✅ 거래량 증가 ({vr}x)")
 
-    # Finviz 모멘텀 보너스 (+5)
-    fv_chg = fv.get("finviz_change", 0)
-    if fv_chg >= 5:
-        raw += 5; signals.append(f"✅ Finviz +{fv_chg}%")
+    fc = fv.get("finviz_change", 0)
+    if fc >= 5: raw += 5; signals.append(f"✅ Finviz +{fc}%")
 
     score = normalize_score(raw)
+    if score >= 65:   entry = "🟢"; ek = "green"
+    elif score >= 45: entry = "⏳"; ek = "wait"
+    else:             entry = "❌"; ek = "stop"
 
-    if score >= 65:
-        entry = "🟢"; entry_key = "green"
-    elif score >= 45:
-        entry = "⏳"; entry_key = "wait"
-    else:
-        entry = "❌"; entry_key = "stop"
-
-    return {
-        "score":     score,
-        "raw_score": raw,
-        "entry":     entry,
-        "entry_key": entry_key,
-        "signals":   signals,
-    }
+    return {"score": score, "raw_score": raw, "entry": entry, "entry_key": ek, "signals": signals}
 
 
 # ═══════════════════════════════════════════════════════════════════
-# 개별 종목 분석
+# 선행 신호 점수
+# ═══════════════════════════════════════════════════════════════════
+
+def compute_presignal_score(ind: dict) -> dict:
+    raw = 0; signals = []; price = ind.get("price", 0)
+
+    # 1. 변동성 수축
+    sq = (ind.get("bb_width_percentile", 50) + ind.get("atr_percentile", 50)) / 2
+    if sq <= 10:   raw += 25; signals.append("🔥 극도의 변동성 수축 (폭발 임박)")
+    elif sq <= 20: raw += 20; signals.append("🔥 강한 변동성 수축")
+    elif sq <= 35: raw += 12; signals.append("✅ 변동성 수축 진행 중")
+
+    # 2. RSI 반등
+    rsi = ind.get("rsi", 50)
+    if 30 <= rsi <= 40:   raw += 20; signals.append("✅ RSI 과매도 반등 구간 (30-40)")
+    elif 25 <= rsi < 30:  raw += 15; signals.append("✅ RSI 깊은 과매도 (반등 대기)")
+    elif 40 < rsi <= 45:  raw += 8;  signals.append("✅ RSI 약세 탈출 중 (40-45)")
+
+    # 3. MACD 전환
+    if ind.get("macd_cross_up"):         raw += 20; signals.append("🔥 MACD 히스토그램 음→양 전환")
+    elif ind.get("macd_approaching_zero"): raw += 12; signals.append("✅ MACD 제로라인 돌파 임박")
+
+    # 4. 골든크로스 임박
+    if ind.get("golden_cross"):
+        raw += 15; signals.append("🔥 골든크로스 발생!")
+    elif ind.get("golden_cross_approaching"):
+        raw += 12; signals.append(f"✅ 골든크로스 임박 (갭 {ind.get('ma50_ma200_gap',0)}%)")
+
+    # 5. 거래량+가격 미반응
+    vr = ind.get("volume_ratio", 1.0); chg = abs(ind.get("change_1d", 0))
+    if vr >= 2.0 and chg < 2.0:   raw += 15; signals.append(f"🔥 거래량 급증({vr}x) + 가격 소폭 → 에너지 축적")
+    elif vr >= 1.5 and chg < 1.5: raw += 8;  signals.append(f"✅ 거래량 증가({vr}x) + 가격 미반응")
+
+    # 6. Stoch 과매도 탈출
+    sk, sd = ind.get("stoch_k", 50), ind.get("stoch_d", 50)
+    if 20 < sk <= 30 and sk > sd: raw += 10; signals.append("✅ Stoch 과매도 탈출 중")
+    elif sk <= 20:                raw += 5;  signals.append("⏳ Stoch 과매도 (반등 미확인)")
+
+    # 7. BB 하단 반등
+    bbl = ind.get("bb_lower", 0)
+    if bbl > 0 and price > 0:
+        dist = (price - bbl) / price * 100
+        if 0 < dist <= 1.5: raw += 10; signals.append("✅ 볼린저 하단 근접 반등")
+        elif dist <= 0:     raw += 5;  signals.append("⏳ 볼린저 하단 이탈")
+
+    # 8. 구름 안 진입
+    if ind.get("cloud_status_raw") == "inside":
+        raw += 5; signals.append("⏳ 구름 안 진입 (전환 구간)")
+
+    # 감점
+    c1d = ind.get("change_1d", 0)
+    if c1d > 5:      raw -= 15; signals.append("⚠️ 당일 5%+ 상승 (후행 위험)")
+    elif c1d > 3:    raw -= 8;  signals.append("⚠️ 당일 3%+ 상승")
+    if rsi > 70:     raw -= 15; signals.append("⚠️ RSI 과열 → 선행 부적합")
+    elif rsi > 60:   raw -= 5;  signals.append("⚠️ RSI 중립 상단")
+
+    score = max(0, min(100, raw))
+    if score >= 60:   g = "🔥 강력"; gk = "strong"
+    elif score >= 40: g = "✅ 관심"; gk = "watch"
+    elif score >= 20: g = "⏳ 대기"; gk = "wait"
+    else:             g = "⬜ 약함"; gk = "weak"
+
+    return {"presignal_score": score, "presignal_raw": raw,
+            "presignal_grade": g, "grade_key": gk, "presignal_signals": signals}
+
+
+# ═══════════════════════════════════════════════════════════════════
+# 개별 분석 함수
 # ═══════════════════════════════════════════════════════════════════
 
 def analyze_ticker(fv: dict) -> dict | None:
@@ -696,167 +693,256 @@ def analyze_ticker(fv: dict) -> dict | None:
     try:
         ind = compute_indicators(ticker)
         if ind is None:
-            log.warning("[%s] 지표 계산 실패", ticker)
-            return None
-
+            log.warning("[%s] 지표 계산 실패", ticker); return None
         scoring = compute_score_and_status(ind, fv)
-
         return {
-            "ticker":         ticker,
-            "company":        fv.get("company", ticker),
-            "price":          ind["price"],
-            "change_1d":      ind["change_1d"],
-            "finviz_change":  fv.get("finviz_change", 0),
-            "score":          scoring["score"],
-            "raw_score":      scoring["raw_score"],
-            "entry":          scoring["entry"],
-            "entry_key":      scoring["entry_key"],
-            "signals":        scoring["signals"],
-            "rsi":            ind.get("rsi",            50.0),
-            "macd":           ind.get("macd",           0.0),
-            "macd_signal":    ind.get("macd_signal",    0.0),
-            "macd_histogram": ind.get("macd_histogram", 0.0),
-            "ma20":           ind.get("ma20",           0),
-            "ma50":           ind.get("ma50",           0),
-            "ma200":          ind.get("ma200",          0),
-            "ma_trend":       ind.get("ma_trend",       ""),
-            "golden_cross":   ind.get("golden_cross",   False),
-            "dead_cross":     ind.get("dead_cross",     False),
-            "stoch_k":        ind.get("stoch_k",        50.0),
-            "stoch_d":        ind.get("stoch_d",        50.0),
-            "cloud_status":   ind.get("cloud_status",   ""),
-            "cloud_top":      ind.get("cloud_top",      0),
-            "cloud_bottom":   ind.get("cloud_bottom",   0),
-            "vwap":           ind.get("vwap",           0),
-            "atr":            ind.get("atr",            0),
-            "target_1":       ind.get("target_1",       0),
-            "target_2":       ind.get("target_2",       0),
-            "stop_loss":      ind.get("stop_loss",      0),
-            "volume_ratio":   ind.get("volume_ratio",   1.0),
+            "ticker": ticker, "company": fv.get("company", ticker),
+            "price": ind["price"], "change_1d": ind["change_1d"],
+            "finviz_change": fv.get("finviz_change", 0),
+            **{k: ind.get(k, d) for k, d in [
+                ("rsi",50.0),("macd",0.0),("macd_signal",0.0),("macd_histogram",0.0),
+                ("ma20",0),("ma50",0),("ma200",0),("ma_trend",""),
+                ("golden_cross",False),("dead_cross",False),
+                ("stoch_k",50.0),("stoch_d",50.0),
+                ("cloud_status",""),("cloud_top",0),("cloud_bottom",0),
+                ("vwap",0),("atr",0),("target_1",0),("target_2",0),("stop_loss",0),
+                ("volume_ratio",1.0),
+            ]},
+            **scoring,
         }
     except Exception as e:
-        log.error("[%s] 분석 오류: %s", ticker, e, exc_info=True)
-        return None
+        log.error("[%s] 분석 오류: %s", ticker, e, exc_info=True); return None
+
+
+def analyze_ticker_presignal(ticker: str) -> dict | None:
+    try:
+        ind = compute_indicators(ticker)
+        if ind is None:
+            return None
+        scoring = compute_presignal_score(ind)
+        return {
+            "ticker": ticker, "company": ticker,
+            "price": ind["price"], "change_1d": ind["change_1d"],
+            **{k: ind.get(k, d) for k, d in [
+                ("rsi",50.0),("macd_histogram",0),("stoch_k",50.0),("stoch_d",50.0),
+                ("volume_ratio",1.0),("bb_width",0),("bb_width_percentile",50),
+                ("atr",0),("atr_percentile",50),("ma_trend",""),("ma_trend_raw","bearish"),
+                ("golden_cross",False),("golden_cross_approaching",False),
+                ("ma50_ma200_gap",0),("macd_cross_up",False),("macd_approaching_zero",False),
+                ("cloud_status",""),("cloud_status_raw","inside"),
+                ("bb_lower",0),("target_1",0),("target_2",0),("stop_loss",0),
+            ]},
+            **scoring,
+        }
+    except Exception as e:
+        log.error("[%s] 선행 분석 오류: %s", ticker, e, exc_info=True); return None
 
 
 # ═══════════════════════════════════════════════════════════════════
-# 메인 분석 오케스트레이터
+# 선행 신호 — batch 1차 필터링
+# ═══════════════════════════════════════════════════════════════════
+
+def _get_presignal_candidates(symbols: list) -> list:
+    """batch로 RSI/거래량 기준 1차 필터링 → 상위 40개만 반환."""
+    if not _YF_AVAILABLE or not symbols:
+        return symbols[:40]
+    try:
+        kw = {"period": "3mo", "interval": "1d", "auto_adjust": True, "progress": False}
+        if _YF_SUPPORTS_MLI:
+            kw["multi_level_index"] = False
+
+        raw = yf.download(symbols, **kw)
+        if raw is None or raw.empty:
+            return symbols[:40]
+
+        if isinstance(raw.columns, pd.MultiIndex):
+            close  = raw["Close"].copy()  if "Close"  in raw.columns.get_level_values(0) else None
+            volume = raw["Volume"].copy() if "Volume" in raw.columns.get_level_values(0) else None
+        else:
+            close  = raw[["Close"]]  if "Close"  in raw.columns else None
+            volume = raw[["Volume"]] if "Volume" in raw.columns else None
+
+        if close is None or isinstance(close, pd.Series) or len(close) < 14:
+            return symbols[:40]
+
+        last = close.iloc[-1]
+        prev = close.iloc[-2]
+        chg  = ((last - prev) / prev * 100).dropna()
+
+        # 거래량 비율
+        if volume is not None and not isinstance(volume, pd.Series) and len(volume) >= 20:
+            vol_last = volume.iloc[-1]
+            vol_avg  = volume.tail(20).mean()
+            vol_ratio = (vol_last / vol_avg.replace(0, np.nan)).dropna()
+        else:
+            vol_ratio = pd.Series(dtype=float)
+
+        candidates = []
+        for sym in chg.index:
+            c = abs(float(chg[sym])) if sym in chg.index else 99
+            if c > 5:  # 이미 많이 오른 종목 제외
+                continue
+            vr = float(vol_ratio[sym]) if sym in vol_ratio.index else 1.0
+            if np.isnan(vr):
+                vr = 1.0
+            candidates.append((sym, c, vr))
+
+        # 거래량 높은 순 정렬
+        candidates.sort(key=lambda x: x[2], reverse=True)
+        result = [str(c[0]) for c in candidates[:40]]
+        log.info("선행 신호 1차 필터: %d → %d 종목", len(symbols), len(result))
+        return result if result else symbols[:40]
+
+    except Exception as e:
+        log.warning("선행 신호 1차 필터 오류: %s", e)
+        return symbols[:40]
+
+
+# ═══════════════════════════════════════════════════════════════════
+# 메인: 모멘텀 분석
 # ═══════════════════════════════════════════════════════════════════
 
 def analyze() -> dict:
-    # KST 기준 분석 시각
     analyzed_at = datetime.now(KST).strftime("%Y-%m-%d %H:%M:%S (KST)")
-    log.info("═══ 분석 시작: %s ═══", analyzed_at)
+    log.info("═══ 모멘텀 분석 시작: %s ═══", analyzed_at)
 
-    # 3중 폴백 수집 (부족하면 yfinance batch로 보충)
     candidates = fetch_finviz_sp500_gainers()
-
     if len(candidates) < MAX_TICKERS:
         log.info("Finviz %d개 → yfinance batch로 보충", len(candidates))
         extra = _fetch_yfinance_batch_fallback()
         existing = {c["ticker"] for c in candidates}
         for e in extra:
             if e["ticker"] not in existing:
-                candidates.append(e)
-                existing.add(e["ticker"])
+                candidates.append(e); existing.add(e["ticker"])
         candidates = candidates[:MAX_TICKERS]
-
     if not candidates:
         log.info("yfinance 실패 → Finnhub 폴백")
         candidates = _fetch_finnhub_sp500_fallback()
-
     if not candidates:
-        log.error("모든 데이터 소스 실패")
-        return {
-            "results":     [],
-            "analyzed_at": analyzed_at,
-            "green": 0, "wait": 0, "stop": 0,
-            "error": "데이터 소스 없음 — 네트워크 또는 API 키를 확인하세요.",
-        }
-
+        return {"results": [], "analyzed_at": analyzed_at, "green": 0, "wait": 0, "stop": 0,
+                "error": "데이터 소스 없음"}
 
     log.info("후보 종목: %d개", len(candidates))
-
-    # 병렬 분석
     results = []
-    actual_workers = min(MAX_WORKERS, len(candidates))
-    with ThreadPoolExecutor(max_workers=actual_workers) as executor:
-        future_map = {
-            executor.submit(analyze_ticker, fv): fv["ticker"]
-            for fv in candidates
-        }
-        for future in as_completed(future_map):
-            ticker = future_map[future]
+    with ThreadPoolExecutor(max_workers=min(MAX_WORKERS, len(candidates))) as ex:
+        fmap = {ex.submit(analyze_ticker, fv): fv["ticker"] for fv in candidates}
+        for f in as_completed(fmap):
             try:
-                result = future.result()
-                if result:
-                    results.append(result)
+                r = f.result()
+                if r: results.append(r)
             except Exception as e:
-                log.error("[%s] future 오류: %s", ticker, e)
+                log.error("[%s] future 오류: %s", fmap[f], e)
 
     if not results:
-        log.error("분석 결과 없음")
-        return {
-            "results":     [],
-            "analyzed_at": analyzed_at,
-            "green": 0, "wait": 0, "stop": 0,
-            "error": "전체 종목 분석 실패 — bot.log 를 확인하세요.",
-        }
+        return {"results": [], "analyzed_at": analyzed_at, "green": 0, "wait": 0, "stop": 0,
+                "error": "전체 분석 실패"}
 
     results.sort(key=lambda x: x["score"], reverse=True)
+    gc = sum(1 for r in results if r["entry_key"] == "green")
+    wc = sum(1 for r in results if r["entry_key"] == "wait")
+    sc = sum(1 for r in results if r["entry_key"] == "stop")
 
-    green_count = sum(1 for r in results if r["entry_key"] == "green")
-    wait_count  = sum(1 for r in results if r["entry_key"] == "wait")
-    stop_count  = sum(1 for r in results if r["entry_key"] == "stop")
-
-    # 히스토리 저장
-    ts        = datetime.now(KST).strftime(HISTORY_TS_FMT)
-    save_data = {
-        "analyzed_at": analyzed_at,
-        "total":       len(results),
-        "green":       green_count,
-        "wait":        wait_count,
-        "stop":        stop_count,
-        "results":     results,
-    }
-    save_path = HISTORY_DIR / f"{ts}.json"
+    save_data = {"analyzed_at": analyzed_at, "total": len(results),
+                 "green": gc, "wait": wc, "stop": sc, "results": results}
+    ts = datetime.now(KST).strftime(HISTORY_TS_FMT)
     try:
-        with open(save_path, "w", encoding="utf-8") as f:
+        with open(HISTORY_DIR / f"{ts}.json", "w", encoding="utf-8") as f:
             json.dump(save_data, f, ensure_ascii=False, indent=2, default=str)
-        log.info("히스토리 저장: %s", save_path)
+        log.info("히스토리 저장: history/%s.json", ts)
     except Exception as e:
         log.error("히스토리 저장 오류: %s", e)
 
-    # Telegram 보고서
     top10 = results[:10]
-    lines = [
-        "<b>📊 S&amp;P 500 모멘텀 분석</b>",
-        f"🕐 {_escape_html(analyzed_at)}",
-        f"총 {len(results)}종목 | 🟢{green_count} ⏳{wait_count} ❌{stop_count}",
-        "",
-    ]
+    lines = ["<b>📊 S&amp;P 500 모멘텀 분석</b>",
+             f"🕐 {_escape_html(analyzed_at)}",
+             f"총 {len(results)}종목 | 🟢{gc} ⏳{wc} ❌{sc}", ""]
     for i, r in enumerate(top10, 1):
-        lines.append(
-            f"{i}. <b>{_escape_html(r['ticker'])}</b> "
-            f"{_escape_html(r['entry'])} "
-            f"점수:{r['score']} | "
-            f"${r['price']} ({r['change_1d']:+.1f}%)"
-        )
+        lines.append(f"{i}. <b>{_escape_html(r['ticker'])}</b> {_escape_html(r['entry'])} "
+                     f"점수:{r['score']} | ${r['price']} ({r['change_1d']:+.1f}%)")
     send_telegram("\n".join(lines))
 
-    log.info("═══ 분석 완료 ═══")
-    log.info(
-        "총 %d종목 | 🟢 %d | ⏳ %d | ❌ %d",
-        len(results), green_count, wait_count, stop_count,
-    )
-    for r in top10:
-        log.info(
-            "  %s %s  score=%d  $%.2f (%+.1f%%)",
-            r["entry"], r["ticker"], r["score"], r["price"], r["change_1d"],
-        )
+    log.info("═══ 모멘텀 분석 완료 ═══")
+    log.info("총 %d종목 | 🟢 %d | ⏳ %d | ❌ %d", len(results), gc, wc, sc)
+    return save_data
 
+
+# ═══════════════════════════════════════════════════════════════════
+# 메인: 선행 신호 분석 (batch 필터 → 개별 정밀 분석)
+# ═══════════════════════════════════════════════════════════════════
+
+def analyze_presignal(universe: str = "sp500") -> dict:
+    """
+    universe: "sp500" | "sox" | "sp500+sox"
+    """
+    uni       = UNIVERSE_MAP.get(universe, UNIVERSE_MAP["sp500"])
+    symbols   = uni["symbols"]
+    uni_name  = uni["name"]
+    analyzed_at = datetime.now(KST).strftime("%Y-%m-%d %H:%M:%S (KST)")
+    log.info("═══ 선행 신호 스캔 시작 [%s]: %s ═══", uni_name, analyzed_at)
+
+    # 1차 batch 필터링
+    scan_targets = _get_presignal_candidates(symbols)
+    log.info("선행 신호 정밀 스캔: %d 종목", len(scan_targets))
+
+    results = []
+    with ThreadPoolExecutor(max_workers=min(MAX_WORKERS, len(scan_targets))) as ex:
+        fmap = {ex.submit(analyze_ticker_presignal, sym): sym for sym in scan_targets}
+        done = 0
+        for f in as_completed(fmap):
+            done += 1
+            if done % 10 == 0:
+                log.info("선행 스캔 진행: %d/%d", done, len(scan_targets))
+            try:
+                r = f.result()
+                if r: results.append(r)
+            except Exception as e:
+                log.error("[%s] 선행 future 오류: %s", fmap[f], e)
+
+    if not results:
+        return {"results": [], "analyzed_at": analyzed_at, "universe": uni_name,
+                "strong": 0, "watch": 0, "wait": 0, "weak": 0,
+                "scanned_total": len(symbols), "error": "전체 분석 실패"}
+
+    results.sort(key=lambda x: x["presignal_score"], reverse=True)
+    top_results = results[:PRESIGNAL_MAX_RESULTS]
+
+    stc = sum(1 for r in results if r["grade_key"] == "strong")
+    wac = sum(1 for r in results if r["grade_key"] == "watch")
+    wtc = sum(1 for r in results if r["grade_key"] == "wait")
+    wkc = sum(1 for r in results if r["grade_key"] == "weak")
+
+    save_data = {
+        "analyzed_at": analyzed_at, "scan_type": "presignal", "universe": uni_name,
+        "scanned_total": len(results), "strong": stc, "watch": wac, "wait": wtc, "weak": wkc,
+        "results": top_results,
+    }
+    ts = datetime.now(KST).strftime(HISTORY_TS_FMT)
+    try:
+        with open(PRESIGNAL_DIR / f"{ts}.json", "w", encoding="utf-8") as f:
+            json.dump(save_data, f, ensure_ascii=False, indent=2, default=str)
+        log.info("선행 신호 저장: presignal/%s.json", ts)
+    except Exception as e:
+        log.error("선행 신호 저장 오류: %s", e)
+
+    top5 = top_results[:5]
+    lines = [f"<b>🔮 선행 신호 스캔 [{_escape_html(uni_name)}]</b>",
+             f"🕐 {_escape_html(analyzed_at)}",
+             f"스캔 {len(results)}종목 | 🔥{stc} ✅{wac} ⏳{wtc}", ""]
+    for i, r in enumerate(top5, 1):
+        sigs = " | ".join(r.get("presignal_signals", [])[:3])
+        lines.append(f"{i}. <b>{_escape_html(r['ticker'])}</b> {_escape_html(r['presignal_grade'])} "
+                     f"점수:{r['presignal_score']} | ${r['price']} ({r['change_1d']:+.1f}%)\n   → {_escape_html(sigs)}")
+    send_telegram("\n".join(lines))
+
+    log.info("═══ 선행 신호 스캔 완료 [%s] ═══", uni_name)
+    log.info("스캔 %d종목 | 🔥 %d | ✅ %d | ⏳ %d | ⬜ %d", len(results), stc, wac, wtc, wkc)
     return save_data
 
 
 if __name__ == "__main__":
-    analyze()
+    import sys
+    if len(sys.argv) > 1 and sys.argv[1] == "presignal":
+        uni = sys.argv[2] if len(sys.argv) > 2 else "sp500"
+        analyze_presignal(uni)
+    else:
+        analyze()
