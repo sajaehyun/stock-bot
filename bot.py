@@ -219,79 +219,40 @@ def _finnhub_candles(ticker: str, days: int = 730) -> pd.DataFrame | None:
 
 
 def _yfinance_candles(ticker: str) -> pd.DataFrame | None:
-    """yfinance에서 2년 일봉 다운로드 (MultiIndex 완전 제거 + 중복 컬럼 제거)."""
+    """yfinance Ticker 객체로 2년 일봉 다운로드 (MultiIndex 완전 우회)."""
     if not _YF_AVAILABLE:
         return None
     try:
-        kw = {
-            "period":      "2y",
-            "interval":    "1d",
-            "auto_adjust": True,
-            "progress":    False,
-        }
-        if _YF_SUPPORTS_MLI:
-            kw["multi_level_index"] = False
-
-        raw = yf.download(ticker, **kw)
+        t = yf.Ticker(ticker)
+        raw = t.history(period="2y", interval="1d", auto_adjust=True)
         if raw is None or raw.empty:
             return None
 
-        # ── MultiIndex 완전 제거 ────────────────────────────
-        if isinstance(raw.columns, pd.MultiIndex):
-            # 단일 종목: level 0 = 필드명(Close, High...), level 1 = 티커
-            # 필드명만 추출하되, 중복 제거
-            seen = {}
-            new_cols = []
-            drop_idx = []
-            for i, col in enumerate(raw.columns):
-                field = col[0]  # "Close", "High", ...
-                if field in seen:
-                    drop_idx.append(i)  # 중복 컬럼 → 제거 대상
-                else:
-                    seen[field] = True
-                    new_cols.append((i, field))
+        # Ticker.history()는 항상 단순 컬럼 반환 (MultiIndex 없음)
+        df = raw.copy()
 
-            # 중복 제거된 컬럼만 선택
-            keep_positions = [pos for pos, _ in new_cols]
-            df = raw.iloc[:, keep_positions].copy()
-            df.columns = [name for _, name in new_cols]
-        else:
-            df = raw.copy()
-            # 일반 컬럼도 중복 가능 → 중복 제거
-            if df.columns.duplicated().any():
-                df = df.loc[:, ~df.columns.duplicated(keep="first")]
-
-        # ── 컬럼 이름 정규화 ─────────────────────────────────
+        # 컬럼 이름 정규화
         rename = {}
         for c in df.columns:
             cl = str(c).lower().strip()
-            if "close" in cl and "adj" not in cl:
+            if cl == "close":
                 rename[c] = "Close"
-            elif "adj" in cl and "close" in cl:
-                rename[c] = "Adj Close"
-            elif "open" in cl:
+            elif cl == "open":
                 rename[c] = "Open"
-            elif "high" in cl:
+            elif cl == "high":
                 rename[c] = "High"
-            elif "low" in cl:
+            elif cl == "low":
                 rename[c] = "Low"
-            elif "vol" in cl:
+            elif cl == "volume":
                 rename[c] = "Volume"
         df = df.rename(columns=rename)
 
-        # 중복 이름 재확인 (rename 후에도 발생 가능)
-        if df.columns.duplicated().any():
-            df = df.loc[:, ~df.columns.duplicated(keep="first")]
-
-        if "Close" not in df.columns and "Adj Close" in df.columns:
-            df["Close"] = df["Adj Close"]
         if "Close" not in df.columns:
             return None
 
-        # Close가 1D인지 최종 확인
-        if hasattr(df["Close"], "ndim") and df["Close"].ndim != 1:
-            log.warning("Close 컬럼이 여전히 2D [%s], shape=%s", ticker, df["Close"].shape)
-            df["Close"] = df["Close"].iloc[:, 0]
+        # 혹시라도 중복 컬럼 방어
+        if df.columns.duplicated().any():
+            df = df.loc[:, ~df.columns.duplicated(keep="first")]
 
         return df if len(df) >= 40 else None
 
