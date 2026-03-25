@@ -1,0 +1,438 @@
+<!DOCTYPE html>
+<html lang="ko">
+
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width,initial-scale=1.0">
+    <title>중장기 투자 분석 — S&P 500 + SOX</title>
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
+    <style>
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box
+        }
+
+        body {
+            font-family: 'Inter', sans-serif;
+            background: linear-gradient(135deg, #0f0c29, #302b63, #24243e);
+            color: #e0e0e0;
+            min-height: 100vh
+        }
+
+        .container {
+            max-width: 1100px;
+            margin: 0 auto;
+            padding: 24px
+        }
+
+        h1 {
+            font-size: 1.5rem;
+            background: linear-gradient(90deg, #22c55e, #16a34a);
+            -webkit-background-clip: text;
+            -webkit-text-fill-color: transparent;
+            margin-bottom: 8px
+        }
+
+        .subtitle {
+            color: #888;
+            font-size: .85rem;
+            margin-bottom: 24px
+        }
+
+        a {
+            color: #a78bfa;
+            text-decoration: none
+        }
+
+        .back {
+            font-size: .9rem;
+            margin-bottom: 16px;
+            display: inline-block
+        }
+
+        .controls {
+            display: flex;
+            gap: 12px;
+            align-items: center;
+            margin-bottom: 24px;
+            flex-wrap: wrap
+        }
+
+        .btn {
+            padding: 10px 20px;
+            border-radius: 8px;
+            border: none;
+            cursor: pointer;
+            font-weight: 600;
+            font-size: .85rem
+        }
+
+        .btn-run {
+            background: linear-gradient(135deg, #22c55e, #16a34a);
+            color: #fff
+        }
+
+        .btn-run:disabled {
+            opacity: .5
+        }
+
+        .badge-running {
+            background: rgba(34, 197, 94, .2);
+            color: #22c55e;
+            padding: 4px 12px;
+            border-radius: 12px;
+            font-size: .8rem;
+            display: none
+        }
+
+        .card {
+            background: rgba(255, 255, 255, .06);
+            border: 1px solid rgba(255, 255, 255, .08);
+            border-radius: 12px;
+            padding: 20px;
+            margin-bottom: 16px
+        }
+
+        .card-header {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            margin-bottom: 12px;
+            flex-wrap: wrap;
+            gap: 8px
+        }
+
+        .ticker {
+            font-size: 1.2rem;
+            font-weight: 700
+        }
+
+        .grade {
+            padding: 4px 12px;
+            border-radius: 8px;
+            font-size: .85rem;
+            font-weight: 600
+        }
+
+        .grade-strong {
+            background: rgba(239, 68, 68, .2);
+            color: #ef4444
+        }
+
+        .grade-buy {
+            background: rgba(34, 197, 94, .2);
+            color: #22c55e
+        }
+
+        .grade-interest {
+            background: rgba(59, 130, 246, .2);
+            color: #3b82f6
+        }
+
+        .grade-wait {
+            background: rgba(245, 158, 11, .2);
+            color: #f59e0b
+        }
+
+        .grade-caution {
+            background: rgba(107, 114, 128, .2);
+            color: #6b7280
+        }
+
+        .score-bar {
+            height: 8px;
+            background: rgba(255, 255, 255, .1);
+            border-radius: 4px;
+            margin: 8px 0;
+            overflow: hidden
+        }
+
+        .score-fill {
+            height: 100%;
+            border-radius: 4px;
+            transition: width .3s
+        }
+
+        .metrics {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(150px, 1fr));
+            gap: 8px;
+            margin: 12px 0
+        }
+
+        .metric {
+            background: rgba(255, 255, 255, .04);
+            padding: 8px 12px;
+            border-radius: 8px;
+            font-size: .8rem
+        }
+
+        .metric-label {
+            color: #888;
+            font-size: .7rem
+        }
+
+        .metric-value {
+            font-weight: 600;
+            margin-top: 2px
+        }
+
+        .signals {
+            display: flex;
+            flex-wrap: wrap;
+            gap: 6px;
+            margin-top: 12px
+        }
+
+        .signal {
+            background: rgba(255, 255, 255, .08);
+            padding: 4px 10px;
+            border-radius: 6px;
+            font-size: .75rem
+        }
+
+        .scores-detail {
+            display: flex;
+            gap: 8px;
+            flex-wrap: wrap;
+            margin: 8px 0
+        }
+
+        .score-chip {
+            padding: 3px 8px;
+            border-radius: 6px;
+            font-size: .7rem;
+            font-weight: 600
+        }
+
+        .news-list {
+            margin-top: 8px
+        }
+
+        .news-item {
+            padding: 6px 0;
+            border-bottom: 1px solid rgba(255, 255, 255, .05);
+            font-size: .8rem
+        }
+
+        .news-pos {
+            color: #22c55e
+        }
+
+        .news-neg {
+            color: #ef4444
+        }
+
+        .news-neu {
+            color: #888
+        }
+
+        .holders {
+            font-size: .8rem;
+            color: #aaa;
+            margin-top: 8px
+        }
+
+        .empty {
+            text-align: center;
+            padding: 40px;
+            color: #666
+        }
+
+        .history-list {
+            margin-top: 32px
+        }
+
+        .history-list a {
+            display: block;
+            padding: 8px 12px;
+            background: rgba(255, 255, 255, .04);
+            border-radius: 6px;
+            margin-bottom: 4px;
+            font-size: .85rem
+        }
+    </style>
+</head>
+
+<body>
+    <div class="container">
+        <a href="/" class="back">← 대시보드로</a>
+        <h1>📋 중장기 투자 분석</h1>
+        <p class="subtitle">기관 매집 · 펀더멘털 · 뉴스 감성 · 애널리스트 · 장기 추세 종합 판단</p>
+
+        <div class="controls">
+            <form id="ltForm" method="post">
+                <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+                <button type="submit" class="btn btn-run" id="btnRun">🔍 분석 시작</button>
+            </form>
+            <span class="badge-running" id="badgeRunning">분석 중...</span>
+        </div>
+
+        {% if data and data.results %}
+        <p style="color:#888;font-size:.85rem;margin-bottom:16px">
+            {{ data.universe|upper }} · {{ data.total_scanned }}종목 스캔 · 상위 {{ data.results|length }}개 표시
+        </p>
+
+        {% for r in data.results %}
+        <div class="card">
+            <div class="card-header">
+                <div>
+                    <span class="ticker">{{ r.ticker }}</span>
+                    <span style="color:#aaa;font-size:.85rem;margin-left:8px">{{ r.company }}</span>
+                    {% if r.sector %}<span style="color:#666;font-size:.75rem;margin-left:8px">{{ r.sector }}</span>{%
+                    endif %}
+                </div>
+                <div style="display:flex;align-items:center;gap:8px">
+                    <span style="font-size:1.1rem;font-weight:700">${{ "%.2f"|format(r.price) }}</span>
+                    <span
+                        class="grade {% if '강력' in r.grade %}grade-strong{% elif '매수' in r.grade %}grade-buy{% elif '관심' in r.grade %}grade-interest{% elif '관망' in r.grade %}grade-wait{% else %}grade-caution{% endif %}">
+                        {{ r.grade }} {{ r.total_score }}점
+                    </span>
+                </div>
+            </div>
+
+            <div class="score-bar">
+                <div class="score-fill"
+                    style="width:{{ [([r.total_score, 0]|max / 80 * 100), 100]|min }}%;background:{% if r.total_score >= 60 %}#ef4444{% elif r.total_score >= 40 %}#22c55e{% elif r.total_score >= 20 %}#3b82f6{% else %}#f59e0b{% endif %}">
+                </div>
+            </div>
+
+            <div class="scores-detail">
+                <span class="score-chip" style="background:rgba(59,130,246,.2);color:#3b82f6">🏦 기관 {{
+                    r.scores.institutional }}</span>
+                <span class="score-chip" style="background:rgba(168,85,247,.2);color:#a855f7">👤 내부자 {{ r.scores.insider
+                    }}</span>
+                <span class="score-chip" style="background:rgba(34,197,94,.2);color:#22c55e">📊 펀더멘털 {{
+                    r.scores.fundamental }}</span>
+                <span class="score-chip" style="background:rgba(245,158,11,.2);color:#f59e0b">📰 뉴스 {{ r.scores.news
+                    }}</span>
+                <span class="score-chip" style="background:rgba(239,68,68,.2);color:#ef4444">🎯 애널리스트 {{
+                    r.scores.analyst }}</span>
+                <span class="score-chip" style="background:rgba(14,165,233,.2);color:#0ea5e9">📈 추세 {{ r.scores.trend
+                    }}</span>
+            </div>
+
+            <div class="metrics">
+                {% if r.fundamentals.pe %}<div class="metric">
+                    <div class="metric-label">PER</div>
+                    <div class="metric-value">{{ "%.1f"|format(r.fundamentals.pe) }}</div>
+                </div>{% endif %}
+                {% if r.fundamentals.peg %}<div class="metric">
+                    <div class="metric-label">PEG</div>
+                    <div class="metric-value">{{ "%.2f"|format(r.fundamentals.peg) }}</div>
+                </div>{% endif %}
+                {% if r.fundamentals.revenue_growth is not none %}<div class="metric">
+                    <div class="metric-label">매출 성장</div>
+                    <div class="metric-value">{{ "%.1f"|format(r.fundamentals.revenue_growth * 100) }}%</div>
+                </div>{% endif %}
+                {% if r.fundamentals.debt_to_equity is not none %}<div class="metric">
+                    <div class="metric-label">부채비율</div>
+                    <div class="metric-value">{{ "%.0f"|format(r.fundamentals.debt_to_equity) }}%</div>
+                </div>{% endif %}
+                {% if r.fundamentals.profit_margin is not none %}<div class="metric">
+                    <div class="metric-label">이익률</div>
+                    <div class="metric-value">{{ "%.1f"|format(r.fundamentals.profit_margin * 100) }}%</div>
+                </div>{% endif %}
+                {% if r.fundamentals.roe is not none %}<div class="metric">
+                    <div class="metric-label">ROE</div>
+                    <div class="metric-value">{{ "%.1f"|format(r.fundamentals.roe * 100) }}%</div>
+                </div>{% endif %}
+                {% if r.analyst.target_mean %}<div class="metric">
+                    <div class="metric-label">목표가</div>
+                    <div class="metric-value">${{ "%.0f"|format(r.analyst.target_mean) }}</div>
+                </div>{% endif %}
+                {% if r.analyst.recommendation %}<div class="metric">
+                    <div class="metric-label">추천</div>
+                    <div class="metric-value">{{ r.analyst.recommendation }}</div>
+                </div>{% endif %}
+                {% if r.institutional.pct is not none %}<div class="metric">
+                    <div class="metric-label">기관 보유</div>
+                    <div class="metric-value">{{ "%.1f"|format(r.institutional.pct * 100) }}%</div>
+                </div>{% endif %}
+                {% if r.trend.above_200ma is not none %}<div class="metric">
+                    <div class="metric-label">200일선</div>
+                    <div class="metric-value">{% if r.trend.above_200ma %}✅ 위{% else %}⚠️ 아래{% endif %}</div>
+                </div>{% endif %}
+            </div>
+
+            {% if r.institutional.top_holders %}
+            <div class="holders">
+                🏦 주요 기관:
+                {% for h in r.institutional.top_holders %}
+                {{ h.name[:25] }}{% if not loop.last %}, {% endif %}
+                {% endfor %}
+            </div>
+            {% endif %}
+
+            {% if r.news_summary.recent %}
+            <div class="news-list">
+                {% for n in r.news_summary.recent[:3] %}
+                <div class="news-item">
+                    <span
+                        class="{% if n.sentiment == 'positive' %}news-pos{% elif n.sentiment == 'negative' %}news-neg{% else %}news-neu{% endif %}">●</span>
+                    {{ n.title }} <span style="color:#666;font-size:.7rem">{{ n.source }}</span>
+                </div>
+                {% endfor %}
+            </div>
+            {% endif %}
+
+            <div class="signals">
+                {% for s in r.signals %}
+                <span class="signal">{{ s }}</span>
+                {% endfor %}
+            </div>
+        </div>
+        {% endfor %}
+
+        {% else %}
+        <div class="empty">아직 분석 결과가 없습니다. '분석 시작' 버튼을 눌러주세요.</div>
+        {% endif %}
+
+        {% if history_list %}
+        <div class="history-list">
+            <h3 style="font-size:.9rem;margin-bottom:8px;color:#888">이전 분석</h3>
+            {% for h in history_list %}
+            <a href="/longterm?file={{ h.name }}">📋 {{ h.label }}</a>
+            {% endfor %}
+        </div>
+        {% endif %}
+    </div>
+
+    <script>
+        const form = document.getElementById('ltForm');
+        const btn = document.getElementById('btnRun');
+        const badge = document.getElementById('badgeRunning');
+
+        form.addEventListener('submit', async (e) => {
+            e.preventDefault();
+            btn.disabled = true;
+            badge.style.display = 'inline';
+            try {
+                const fd = new FormData(form);
+                await fetch('/longterm/run', { method: 'POST', body: fd });
+                const poll = setInterval(async () => {
+                    const r = await fetch('/longterm/status');
+                    const j = await r.json();
+                    if (!j.analyzing) { clearInterval(poll); location.reload(); }
+                }, 3000);
+            } catch (e) {
+                btn.disabled = false;
+                badge.style.display = 'none';
+            }
+        });
+
+        // 페이지 로드시 분석 중인지 확인
+        fetch('/longterm/status').then(r => r.json()).then(j => {
+            if (j.analyzing) {
+                btn.disabled = true; badge.style.display = 'inline';
+                const poll = setInterval(async () => {
+                    const r = await fetch('/longterm/status'); const d = await r.json();
+                    if (!d.analyzing) { clearInterval(poll); location.reload(); }
+                }, 3000);
+            }
+        });
+    </script>
+</body>
+
+</html>
