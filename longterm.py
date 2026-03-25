@@ -109,7 +109,10 @@ def analyze_insider(ticker_obj):
                 shares = row.get("Shares", 0)
                 if shares is None:
                     shares = 0
-                shares = int(shares)
+                try:
+                    shares = int(shares)
+                except (ValueError, TypeError):
+                    shares = 0
                 if "purchase" in txt or "buy" in txt:
                     result["insider_purchases"] += shares
                 elif "sale" in txt or "sell" in txt:
