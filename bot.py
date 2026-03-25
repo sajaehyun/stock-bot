@@ -938,11 +938,305 @@ def analyze_presignal(universe: str = "sp500") -> dict:
     log.info("스캔 %d종목 | 🔥 %d | ✅ %d | ⏳ %d | ⬜ %d", len(results), stc, wac, wtc, wkc)
     return save_data
 
+# ═══════════════════════════════════════════════════════════════════
+# 확신 종목 스캐너 — 7개 독립 필터 + 오버랩 보너스
+# ═══════════════════════════════════════════════════════════════════
+
+CONVICTION_DIR = pathlib.Path("conviction")
+CONVICTION_DIR.mkdir(exist_ok=True)
+CONVICTION_MAX_RESULTS = 20
+
+
+def _compute_conviction_score(ind: dict) -> dict:
+    """
+    7개 독립 필터를 평가하고 오버랩 보너스를 적용한다.
+    필터: TTM Squeeze, RSI 반등, MACD 전환, 골든크로스 임박,
+          스마트머니 축적, Stoch 탈출, BB 하단 반등
+    """
+    filters_hit = 0
+    raw = 0
+    signals = []
+    price = ind.get("price", 0)
+
+    # ── 필터 1: TTM Squeeze (변동성 수축) ──
+    bb_pct = ind.get("bb_width_percentile", 50)
+    atr_pct = ind.get("atr_percentile", 50)
+    squeeze_avg = (bb_pct + atr_pct) / 2
+    if squeeze_avg <= 15:
+        raw += 18
+        filters_hit += 1
+        signals.append("🔥 TTM Squeeze: 극도의 변동성 수축 (폭발 임박)")
+    elif squeeze_avg <= 25:
+        raw += 12
+        filters_hit += 1
+        signals.append("✅ TTM Squeeze: 변동성 수축 진행 중")
+    elif squeeze_avg <= 35:
+        raw += 6
+        signals.append("⏳ TTM Squeeze: 약한 수축")
+
+    # ── 필터 2: RSI 바닥 반등 ──
+    rsi = ind.get("rsi", 50)
+    if 30 <= rsi <= 40:
+        raw += 16
+        filters_hit += 1
+        signals.append("🔥 RSI 바닥 반등 (30-40)")
+    elif 25 <= rsi < 30:
+        raw += 12
+        filters_hit += 1
+        signals.append("✅ RSI 깊은 과매도 (반등 대기)")
+    elif 40 < rsi <= 45:
+        raw += 6
+        signals.append("⏳ RSI 약세 탈출 중")
+
+    # ── 필터 3: MACD 히스토그램 반전 ──
+    if ind.get("macd_cross_up"):
+        raw += 16
+        filters_hit += 1
+        signals.append("🔥 MACD 히스토그램 음→양 전환")
+    elif ind.get("macd_approaching_zero"):
+        raw += 10
+        filters_hit += 1
+        signals.append("✅ MACD 제로라인 돌파 임박")
+
+    # ── 필터 4: 골든크로스 임박/발생 ──
+    if ind.get("golden_cross"):
+        raw += 16
+        filters_hit += 1
+        signals.append("🔥 골든크로스 발생!")
+    elif ind.get("golden_cross_approaching"):
+        gap = ind.get("ma50_ma200_gap", 0)
+        raw += 12
+        filters_hit += 1
+        signals.append(f"✅ 골든크로스 임박 (MA 갭 {gap}%)")
+
+    # ── 필터 5: 스마트머니 축적 (거래량↑ 가격 미변동) ──
+    vr = ind.get("volume_ratio", 1.0)
+    chg = abs(ind.get("change_1d", 0))
+    if vr >= 2.0 and chg < 2.0:
+        raw += 14
+        filters_hit += 1
+        signals.append(f"🔥 스마트머니 축적: 거래량 {vr}x + 가격 미반응")
+    elif vr >= 1.5 and chg < 1.5:
+        raw += 8
+        filters_hit += 1
+        signals.append(f"✅ 거래량 증가({vr}x) + 가격 안정")
+
+    # ── 필터 6: Stochastic 과매도 탈출 ──
+    sk = ind.get("stoch_k", 50)
+    sd = ind.get("stoch_d", 50)
+    if 20 < sk <= 35 and sk > sd:
+        raw += 12
+        filters_hit += 1
+        signals.append("✅ Stoch 과매도 탈출 (%K > %D)")
+    elif sk <= 20:
+        raw += 5
+        signals.append("⏳ Stoch 과매도 (반등 미확인)")
+
+    # ── 필터 7: 볼린저 하단 바운스 ──
+    bbl = ind.get("bb_lower", 0)
+    if bbl > 0 and price > 0:
+        dist = (price - bbl) / price * 100
+        if 0 < dist <= 1.5:
+            raw += 12
+            filters_hit += 1
+            signals.append("🔥 볼린저 하단 근접 반등")
+        elif dist <= 0:
+            raw += 6
+            signals.append("⏳ 볼린저 하단 이탈 (바닥 탐색)")
+        elif dist <= 3.0:
+            raw += 4
+            signals.append("⏳ 볼린저 하단 접근 중")
+
+    # ── 오버랩 보너스 ──
+    if filters_hit >= 4:
+        bonus = 1.6
+        signals.insert(0, f"⭐ {filters_hit}개 필터 동시 충족 → 1.6x 보너스")
+    elif filters_hit >= 3:
+        bonus = 1.4
+        signals.insert(0, f"🔥 {filters_hit}개 필터 동시 충족 → 1.4x 보너스")
+    elif filters_hit >= 2:
+        bonus = 1.2
+        signals.insert(0, f"✅ {filters_hit}개 필터 동시 충족 → 1.2x 보너스")
+    else:
+        bonus = 1.0
+
+    raw = raw * bonus
+
+    # ── 감점 ──
+    c1d = ind.get("change_1d", 0)
+    if c1d > 5:
+        raw -= 20
+        signals.append("⚠️ 당일 5%+ 상승 (이미 움직임 → 후행 위험)")
+    elif c1d > 3:
+        raw -= 10
+        signals.append("⚠️ 당일 3%+ 상승")
+
+    if rsi > 70:
+        raw -= 20
+        signals.append("⚠️ RSI 과열 (>70) → 확신 부적합")
+    elif rsi > 60:
+        raw -= 8
+        signals.append("⚠️ RSI 중립 상단 (>60)")
+
+    if ind.get("dead_cross"):
+        raw -= 15
+        signals.append("⚠️ 데드크로스 발생 → 하방 압력")
+
+    if ind.get("cloud_status_raw") == "below":
+        raw -= 5
+        signals.append("⚠️ 구름 아래 위치")
+
+    # ── 최종 점수 ──
+    score = max(0, min(100, int(round(raw))))
+
+    if score >= 70:
+        grade = "⭐ 확신"
+        grade_key = "conviction"
+    elif score >= 50:
+        grade = "🔥 유력"
+        grade_key = "strong"
+    elif score >= 30:
+        grade = "✅ 관심"
+        grade_key = "watch"
+    else:
+        grade = "⬜ 미달"
+        grade_key = "weak"
+
+    return {
+        "conviction_score": score,
+        "conviction_raw": round(raw, 1),
+        "conviction_grade": grade,
+        "grade_key": grade_key,
+        "filters_hit": filters_hit,
+        "overlap_bonus": bonus,
+        "conviction_signals": signals,
+    }
+
+
+def analyze_ticker_conviction(ticker: str) -> dict | None:
+    """개별 종목 확신 분석"""
+    try:
+        ind = compute_indicators(ticker)
+        if ind is None:
+            return None
+        scoring = _compute_conviction_score(ind)
+        return {
+            "ticker": ticker,
+            "company": ticker,
+            "price": ind["price"],
+            "change_1d": ind["change_1d"],
+            **{k: ind.get(k, d) for k, d in [
+                ("rsi", 50.0), ("macd_histogram", 0), ("stoch_k", 50.0), ("stoch_d", 50.0),
+                ("volume_ratio", 1.0), ("bb_width", 0), ("bb_width_percentile", 50),
+                ("atr", 0), ("atr_percentile", 50), ("ma_trend", ""), ("ma_trend_raw", "bearish"),
+                ("golden_cross", False), ("golden_cross_approaching", False),
+                ("dead_cross", False), ("ma50_ma200_gap", 0),
+                ("macd_cross_up", False), ("macd_approaching_zero", False),
+                ("cloud_status", ""), ("cloud_status_raw", "inside"),
+                ("bb_lower", 0), ("target_1", 0), ("target_2", 0), ("stop_loss", 0),
+            ]},
+            **scoring,
+        }
+    except Exception as e:
+        log.error("[%s] 확신 분석 오류: %s", ticker, e, exc_info=True)
+        return None
+
+
+def analyze_conviction(universe: str = "sp500+sox") -> dict:
+    """
+    확신 종목 스캐너: 7개 독립 필터 + 오버랩 보너스
+    """
+    uni = UNIVERSE_MAP.get(universe, UNIVERSE_MAP["sp500+sox"])
+    symbols = uni["symbols"]
+    uni_name = uni["name"]
+    analyzed_at = datetime.now(KST).strftime("%Y-%m-%d %H:%M:%S (KST)")
+    log.info("═══ 확신 스캐너 시작 [%s]: %s ═══", uni_name, analyzed_at)
+
+    # 1차 batch 필터링 (presignal과 동일 로직)
+    scan_targets = _get_presignal_candidates(symbols)
+    log.info("확신 스캐너 정밀 스캔: %d 종목", len(scan_targets))
+
+    results = []
+    with ThreadPoolExecutor(max_workers=min(MAX_WORKERS, len(scan_targets))) as ex:
+        fmap = {ex.submit(analyze_ticker_conviction, sym): sym for sym in scan_targets}
+        done = 0
+        for f in as_completed(fmap):
+            done += 1
+            if done % 10 == 0:
+                log.info("확신 스캔 진행: %d/%d", done, len(scan_targets))
+            try:
+                r = f.result()
+                if r:
+                    results.append(r)
+            except Exception as e:
+                log.error("[%s] 확신 future 오류: %s", fmap[f], e)
+
+    if not results:
+        return {
+            "results": [], "analyzed_at": analyzed_at, "universe": uni_name,
+            "conviction": 0, "strong": 0, "watch": 0, "weak": 0,
+            "scanned_total": len(symbols), "scan_type": "conviction",
+            "error": "전체 분석 실패",
+        }
+
+    results.sort(key=lambda x: x["conviction_score"], reverse=True)
+    top_results = results[:CONVICTION_MAX_RESULTS]
+
+    cc = sum(1 for r in results if r["grade_key"] == "conviction")
+    sc = sum(1 for r in results if r["grade_key"] == "strong")
+    wc = sum(1 for r in results if r["grade_key"] == "watch")
+    wk = sum(1 for r in results if r["grade_key"] == "weak")
+
+    save_data = {
+        "analyzed_at": analyzed_at,
+        "scan_type": "conviction",
+        "universe": uni_name,
+        "scanned_total": len(results),
+        "conviction": cc,
+        "strong": sc,
+        "watch": wc,
+        "weak": wk,
+        "results": top_results,
+    }
+
+    ts = datetime.now(KST).strftime(HISTORY_TS_FMT)
+    try:
+        with open(CONVICTION_DIR / f"{ts}.json", "w", encoding="utf-8") as f:
+            json.dump(save_data, f, ensure_ascii=False, indent=2, default=str)
+        log.info("확신 종목 저장: conviction/%s.json", ts)
+    except Exception as e:
+        log.error("확신 종목 저장 오류: %s", e)
+
+    # 텔레그램 전송
+    top5 = top_results[:5]
+    lines = [
+        f"<b>🎯 확신 종목 스캔 [{_escape_html(uni_name)}]</b>",
+        f"🕐 {_escape_html(analyzed_at)}",
+        f"스캔 {len(results)}종목 | ⭐{cc} 🔥{sc} ✅{wc} ⬜{wk}",
+        "",
+    ]
+    for i, r in enumerate(top5, 1):
+        sigs = " | ".join(r.get("conviction_signals", [])[:3])
+        lines.append(
+            f"{i}. <b>{_escape_html(r['ticker'])}</b> {_escape_html(r['conviction_grade'])} "
+            f"점수:{r['conviction_score']} (필터 {r['filters_hit']}개, {r['overlap_bonus']}x) "
+            f"| ${r['price']} ({r['change_1d']:+.1f}%)\n"
+            f"   → {_escape_html(sigs)}"
+        )
+    send_telegram("\n".join(lines))
+
+    log.info("═══ 확신 스캐너 완료 [%s] ═══", uni_name)
+    log.info("스캔 %d종목 | ⭐ %d | 🔥 %d | ✅ %d | ⬜ %d", len(results), cc, sc, wc, wk)
+    return save_data
 
 if __name__ == "__main__":
     import sys
-    if len(sys.argv) > 1 and sys.argv[1] == "presignal":
-        uni = sys.argv[2] if len(sys.argv) > 2 else "sp500"
+    mode = sys.argv[1] if len(sys.argv) > 1 else "momentum"
+    uni = sys.argv[2] if len(sys.argv) > 2 else "sp500+sox"
+
+    if mode == "presignal":
         analyze_presignal(uni)
+    elif mode == "conviction":
+        analyze_conviction(uni)
     else:
         analyze()

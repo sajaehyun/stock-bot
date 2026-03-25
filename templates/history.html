@@ -65,6 +65,14 @@
             border-left-color: #f59e0b
         }
 
+        .section-title.conv {
+            border-left-color: #ef4444
+        }
+
+        .section-title.bt {
+            border-left-color: #60a5fa
+        }
+
         .list {
             list-style: none
         }
@@ -94,6 +102,16 @@
             border-color: rgba(245, 158, 11, .3)
         }
 
+        .list a.conv:hover {
+            background: rgba(239, 68, 68, .15);
+            border-color: rgba(239, 68, 68, .3)
+        }
+
+        .list a.bt:hover {
+            background: rgba(96, 165, 250, .15);
+            border-color: rgba(96, 165, 250, .3)
+        }
+
         .empty {
             color: #666;
             padding: 20px;
@@ -106,19 +124,57 @@
     <div class="container">
         <a href="/" class="back">← 대시보드로</a>
         <h1>📁 분석 히스토리</h1>
+
         <div class="section">
             <div class="section-title">🚀 모멘텀 분석</div>
             {% if momentum_dates %}
-            <ul class="list">{% for d in momentum_dates %}<li><a href="/history/momentum/{{ d.name }}">📊 {{ d.label
-                        }}</a></li>{% endfor %}</ul>
-            {% else %}<div class="empty">모멘텀 히스토리 없음</div>{% endif %}
+            <ul class="list">
+                {% for d in momentum_dates %}
+                <li><a href="/history/momentum/{{ d.name }}">📊 {{ d.label }}</a></li>
+                {% endfor %}
+            </ul>
+            {% else %}
+            <div class="empty">모멘텀 히스토리 없음</div>
+            {% endif %}
         </div>
+
         <div class="section">
             <div class="section-title pre">🔮 선행 신호 스캔</div>
             {% if presignal_dates %}
-            <ul class="list">{% for d in presignal_dates %}<li><a class="pre" href="/history/presignal/{{ d.name }}">🔮
-                        {{ d.label }}</a></li>{% endfor %}</ul>
-            {% else %}<div class="empty">선행 신호 히스토리 없음</div>{% endif %}
+            <ul class="list">
+                {% for d in presignal_dates %}
+                <li><a class="pre" href="/history/presignal/{{ d.name }}">🔮 {{ d.label }}</a></li>
+                {% endfor %}
+            </ul>
+            {% else %}
+            <div class="empty">선행 신호 히스토리 없음</div>
+            {% endif %}
+        </div>
+
+        <div class="section">
+            <div class="section-title conv">🎯 확신 종목</div>
+            {% if conviction_dates %}
+            <ul class="list">
+                {% for d in conviction_dates %}
+                <li><a class="conv" href="/history/conviction/{{ d.name }}">🎯 {{ d.label }}</a></li>
+                {% endfor %}
+            </ul>
+            {% else %}
+            <div class="empty">확신 종목 히스토리 없음</div>
+            {% endif %}
+        </div>
+
+        <div class="section">
+            <div class="section-title bt">🔬 백테스트 검증</div>
+            {% if backtest_dates %}
+            <ul class="list">
+                {% for d in backtest_dates %}
+                <li><a class="bt" href="/backtest?file={{ d.name }}">🔬 {{ d.label }}</a></li>
+                {% endfor %}
+            </ul>
+            {% else %}
+            <div class="empty">백테스트 히스토리 없음</div>
+            {% endif %}
         </div>
     </div>
 </body>

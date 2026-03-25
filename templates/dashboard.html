@@ -108,6 +108,15 @@
             opacity: .85
         }
 
+        .btn-conviction {
+            background: linear-gradient(135deg, #ef4444, #991b1b);
+            color: #fff
+        }
+
+        .btn-conviction:hover {
+            opacity: .85
+        }
+
         .btn:disabled {
             opacity: .4;
             cursor: not-allowed
@@ -137,15 +146,8 @@
         }
 
         @keyframes pulse {
-
-            0%,
-            100% {
-                opacity: 1
-            }
-
-            50% {
-                opacity: .5
-            }
+            0%, 100% { opacity: 1 }
+            50% { opacity: .5 }
         }
 
         .stats {
@@ -182,9 +184,8 @@
             border-left: 3px solid #8b5cf6
         }
 
-        .section-title.pre {
-            border-left-color: #f59e0b
-        }
+        .section-title.pre { border-left-color: #f59e0b }
+        .section-title.conv { border-left-color: #ef4444 }
 
         .error-banner {
             background: rgba(239, 68, 68, .15);
@@ -195,13 +196,8 @@
             color: #fca5a5
         }
 
-        .tab-content {
-            display: none
-        }
-
-        .tab-content.active {
-            display: block
-        }
+        .tab-content { display: none }
+        .tab-content.active { display: block }
 
         .card {
             background: rgba(255, 255, 255, .06);
@@ -230,27 +226,11 @@
             color: #fff
         }
 
-        .price-info {
-            text-align: right
-        }
-
-        .price {
-            font-size: 1.05rem;
-            font-weight: 600
-        }
-
-        .change {
-            font-size: .85rem;
-            font-weight: 600
-        }
-
-        .change.up {
-            color: #34d399
-        }
-
-        .change.down {
-            color: #f87171
-        }
+        .price-info { text-align: right }
+        .price { font-size: 1.05rem; font-weight: 600 }
+        .change { font-size: .85rem; font-weight: 600 }
+        .change.up { color: #34d399 }
+        .change.down { color: #f87171 }
 
         .score-bar-wrap {
             background: rgba(255, 255, 255, .08);
@@ -280,14 +260,8 @@
             border-radius: 6px
         }
 
-        .metric .k {
-            color: #999
-        }
-
-        .metric .v {
-            color: #e0e0e0;
-            font-weight: 600
-        }
+        .metric .k { color: #999 }
+        .metric .v { color: #e0e0e0; font-weight: 600 }
 
         .signals {
             display: flex;
@@ -310,25 +284,10 @@
             font-size: .78rem
         }
 
-        .target-tag {
-            padding: 4px 10px;
-            border-radius: 6px
-        }
-
-        .tgt-1 {
-            background: rgba(52, 211, 153, .15);
-            color: #34d399
-        }
-
-        .tgt-2 {
-            background: rgba(96, 165, 250, .15);
-            color: #60a5fa
-        }
-
-        .tgt-stop {
-            background: rgba(248, 113, 113, .15);
-            color: #f87171
-        }
+        .target-tag { padding: 4px 10px; border-radius: 6px }
+        .tgt-1 { background: rgba(52, 211, 153, .15); color: #34d399 }
+        .tgt-2 { background: rgba(96, 165, 250, .15); color: #60a5fa }
+        .tgt-stop { background: rgba(248, 113, 113, .15); color: #f87171 }
 
         .pre-card {
             background: rgba(255, 255, 255, .06);
@@ -340,22 +299,12 @@
             position: relative
         }
 
-        .pre-card:hover {
-            border-color: rgba(245, 158, 11, .4);
-            transform: translateY(-1px)
-        }
+        .pre-card:hover { transform: translateY(-1px) }
 
-        .pre-card.strong {
-            border-left: 3px solid #f59e0b
-        }
-
-        .pre-card.watch {
-            border-left: 3px solid #34d399
-        }
-
-        .pre-card.wait {
-            border-left: 3px solid #60a5fa
-        }
+        .pre-card.strong { border-left: 3px solid #f59e0b; border-color: rgba(245,158,11,.4); }
+        .pre-card.watch { border-left: 3px solid #34d399; border-color: rgba(52,211,153,.4); }
+        .pre-card.wait { border-left: 3px solid #60a5fa; border-color: rgba(96,165,250,.4); }
+        .pre-card.conviction { border-left: 3px solid #ef4444; border-color: rgba(239,68,68,.4); }
 
         .pre-grade {
             position: absolute;
@@ -365,27 +314,13 @@
             font-weight: 700
         }
 
-        .pre-signals {
-            margin-top: 10px
-        }
-
+        .pre-signals { margin-top: 10px }
         .pre-signal-item {
             font-size: .8rem;
             padding: 4px 0;
             border-bottom: 1px solid rgba(255, 255, 255, .04)
         }
-
-        .pre-signal-item:last-child {
-            border: none
-        }
-
-        .pre-metrics {
-            display: grid;
-            grid-template-columns: repeat(auto-fit, minmax(140px, 1fr));
-            gap: 6px;
-            font-size: .78rem;
-            margin: 10px 0
-        }
+        .pre-signal-item:last-child { border: none }
 
         .meta {
             text-align: center;
@@ -394,26 +329,10 @@
             margin-top: 20px
         }
 
-        a {
-            color: #a78bfa;
-            text-decoration: none
-        }
-
-        a:hover {
-            text-decoration: underline
-        }
-
-        .nav-link {
-            font-size: .85rem;
-            margin-left: 12px
-        }
-
-        .empty {
-            text-align: center;
-            padding: 60px;
-            color: #666;
-            font-size: 1rem
-        }
+        a { color: #a78bfa; text-decoration: none }
+        a:hover { text-decoration: underline }
+        .nav-link { font-size: .85rem; margin-left: 12px }
+        .empty { text-align: center; padding: 60px; color: #666; font-size: 1rem }
     </style>
 </head>
 
@@ -427,23 +346,26 @@
             {% if not is_history %}
             <div class="tabs">
                 <div class="tab active" data-tab="momentum" onclick="switchTab('momentum')">🚀 모멘텀</div>
-                <div class="tab" data-tab="presignal" onclick="switchTab('presignal')">🔮 선행 신호</div>
+                <div class="tab" data-tab="presignal" onclick="switchTab('presignal')">🔮 선행</div>
+                <div class="tab" data-tab="conviction" onclick="switchTab('conviction')">🎯 확신</div>
             </div>
             <div class="actions">
-                <button class="btn btn-primary" id="btnMomentum" onclick="startRefresh('momentum')">🔄 모멘텀 분석</button>
+                <button class="btn btn-primary" id="btnMomentum" onclick="startRefresh('momentum')">🔄 모멘텀</button>
                 <select id="selUniverse">
                     <option value="sp500">S&P 500</option>
-                    <option value="sox">반도체 (SOX 30)</option>
-                    <option value="sp500+sox">S&P 500 + SOX</option>
+                    <option value="sox">SOX 30</option>
+                    <option value="sp500+sox">ALL</option>
                 </select>
-                <button class="btn btn-presignal" id="btnPresignal" onclick="startRefresh('presignal')">🔮 선행
-                    스캔</button>
-                {% if analyzing %}<span class="badge badge-analyzing">모멘텀 분석 중…</span>{% endif %}
-                {% if analyzing_presignal %}<span class="badge badge-analyzing">선행 스캔 중…</span>{% endif %}
+                <button class="btn btn-presignal" id="btnPresignal" onclick="startRefresh('presignal')">🔮 선행</button>
+                <button class="btn btn-conviction" id="btnConviction" onclick="startRefresh('conviction')">🎯 확신</button>
+                {% if analyzing %}<span class="badge badge-analyzing">모멘텀 중…</span>{% endif %}
+                {% if analyzing_presignal %}<span class="badge badge-analyzing">선행 중…</span>{% endif %}
+                {% if analyzing_conviction %}<span class="badge badge-analyzing">확신 중…</span>{% endif %}
             </div>
             {% else %}
             <div><a href="/" class="btn btn-primary">← 대시보드로</a></div>
             {% endif %}
+            <div><a href="/backtest" class="btn" style="background:rgba(245,158,11,.2);color:#f59e0b;padding:8px 16px;border-radius:8px;font-size:.8rem;font-weight:600;text-decoration:none;">🔬 백테스트 검증</a></div>
         </header>
 
         {% if error %}<div class="error-banner">⚠️ {{ error }}</div>{% endif %}
@@ -452,96 +374,41 @@
         <div class="tab-content active" id="tab-momentum">
             {% if data and data.results is defined and data.results|length > 0 %}
             <div class="stats">
-                <div class="stat-card">
-                    <div class="num">{{ data.results|length }}</div>
-                    <div class="label">총 종목</div>
-                </div>
-                <div class="stat-card">
-                    <div class="num" style="color:#34d399">{{ data.green|default(0) }}</div>
-                    <div class="label">🟢 매수</div>
-                </div>
-                <div class="stat-card">
-                    <div class="num" style="color:#fbbf24">{{ data.wait|default(0) }}</div>
-                    <div class="label">⏳ 관망</div>
-                </div>
-                <div class="stat-card">
-                    <div class="num" style="color:#f87171">{{ data.stop|default(0) }}</div>
-                    <div class="label">❌ 주의</div>
-                </div>
+                <div class="stat-card"><div class="num">{{ data.results|length }}</div><div class="label">총 종목</div></div>
+                <div class="stat-card"><div class="num" style="color:#34d399">{{ data.green|default(0) }}</div><div class="label">🟢 매수</div></div>
+                <div class="stat-card"><div class="num" style="color:#fbbf24">{{ data.wait|default(0) }}</div><div class="label">⏳ 관망</div></div>
+                <div class="stat-card"><div class="num" style="color:#f87171">{{ data.stop|default(0) }}</div><div class="label">❌ 주의</div></div>
             </div>
-            <div class="section-title">모멘텀 분석 결과</div>
             {% for r in data.results %}
             <div class="card">
                 <div class="card-header">
-                    <div>
-                        <span class="ticker">{{ r.entry|default('') }} {{ r.ticker|default('') }}</span>
-                        <span style="color:#999;font-size:.8rem;margin-left:8px">{{ r.company|default('') }}</span>
-                    </div>
+                    <div><span class="ticker">{{ r.entry|default('') }} {{ r.ticker|default('') }}</span></div>
                     <div class="price-info">
                         <div class="price">${{ r.price|default(0) }}</div>
-                        <div class="change {{ 'up' if (r.change_1d|default(0)) >= 0 else 'down' }}">{{
-                            '%+.1f'|format(r.change_1d|default(0)) }}%</div>
+                        <div class="change {{ 'up' if (r.change_1d|default(0)) >= 0 else 'down' }}">{{ '%+.1f'|format(r.change_1d|default(0)) }}%</div>
                     </div>
                 </div>
                 {% set score = r.score|default(0)|int %}
-                <div style="display:flex;justify-content:space-between;font-size:.85rem;font-weight:600">
-                    <span>점수: {{ score }}</span><span style="color:#999">raw: {{ r.raw_score|default(0) }}</span>
-                </div>
-                <div class="score-bar-wrap">
-                    <div class="score-bar"
-                        style="width:{{ score }}%;background:{% if score >= 65 %}#34d399{% elif score >= 45 %}#fbbf24{% else %}#f87171{% endif %}">
-                    </div>
-                </div>
+                <div class="score-bar-wrap"><div class="score-bar" style="width:{{ score }}%;background:{% if score >= 65 %}#34d399{% elif score >= 45 %}#fbbf24{% else %}#f87171{% endif %}"></div></div>
                 <div class="metrics">
-                    <div class="metric"><span class="k">RSI</span> <span class="v">{{ r.rsi|default(50)|round(1)
-                            }}</span></div>
-                    <div class="metric"><span class="k">MACD</span> <span class="v">{{
-                            r.macd_histogram|default(0)|round(4) }}</span></div>
-                    <div class="metric"><span class="k">Stoch %K</span> <span class="v">{{
-                            r.stoch_k|default(50)|round(1) }}</span></div>
-                    <div class="metric"><span class="k">MA</span> <span class="v">{{ r.ma_trend|default('') }}</span>
-                    </div>
-                    <div class="metric"><span class="k">구름</span> <span class="v">{{ r.cloud_status|default('')
-                            }}</span></div>
-                    <div class="metric"><span class="k">거래량</span> <span class="v">{{ r.volume_ratio|default(1.0)
-                            }}x</span></div>
+                    <div class="metric"><span class="k">RSI</span> <span class="v">{{ r.rsi|default(50)|round(1) }}</span></div>
+                    <div class="metric"><span class="k">MACD</span> <span class="v">{{ r.macd_histogram|default(0)|round(4) }}</span></div>
+                    <div class="metric"><span class="k">거래량</span> <span class="v">{{ r.volume_ratio|default(1.0) }}x</span></div>
                 </div>
                 <div class="targets">
                     <span class="target-tag tgt-1">🎯1 ${{ r.target_1|default(0) }}</span>
-                    <span class="target-tag tgt-2">🎯2 ${{ r.target_2|default(0) }}</span>
                     <span class="target-tag tgt-stop">🛑 ${{ r.stop_loss|default(0) }}</span>
                 </div>
-                {% if r.signals %}<div class="signals">{% for s in r.signals %}<span class="signal-tag">{{ s }}</span>{%
-                    endfor %}</div>{% endif %}
             </div>
             {% endfor %}
             {% else %}
-            <div class="empty">아직 모멘텀 분석 결과가 없습니다.<br>🔄 버튼을 눌러 분석을 시작하세요.</div>
+            <div class="empty">모멘텀 결과 없음</div>
             {% endif %}
         </div>
 
-        <!-- 선행 신호 탭 -->
+        <!-- 선행 탭 -->
         <div class="tab-content" id="tab-presignal">
-            {% if presignal_data and presignal_data.results is defined and presignal_data.results|length > 0 %}
-            <div class="stats">
-                <div class="stat-card">
-                    <div class="num">{{ presignal_data.scanned_total|default(0) }}</div>
-                    <div class="label">스캔 종목</div>
-                </div>
-                <div class="stat-card">
-                    <div class="num" style="color:#f59e0b">{{ presignal_data.strong|default(0) }}</div>
-                    <div class="label">🔥 강력</div>
-                </div>
-                <div class="stat-card">
-                    <div class="num" style="color:#34d399">{{ presignal_data.watch|default(0) }}</div>
-                    <div class="label">✅ 관심</div>
-                </div>
-                <div class="stat-card">
-                    <div class="num" style="color:#60a5fa">{{ presignal_data.wait|default(0) }}</div>
-                    <div class="label">⏳ 대기</div>
-                </div>
-            </div>
-            <div class="section-title pre">🔮 선행 신호 — {{ presignal_data.universe|default('S&P 500') }}</div>
+            {% if presignal_data and presignal_data.results is defined %}
             {% for r in presignal_data.results %}
             <div class="pre-card {{ r.grade_key|default('wait') }}">
                 <div class="pre-grade">{{ r.presignal_grade|default('') }} {{ r.presignal_score|default(0) }}점</div>
@@ -549,109 +416,75 @@
                     <div><span class="ticker">{{ r.ticker|default('') }}</span></div>
                     <div class="price-info">
                         <div class="price">${{ r.price|default(0) }}</div>
-                        <div class="change {{ 'up' if (r.change_1d|default(0)) >= 0 else 'down' }}">{{
-                            '%+.1f'|format(r.change_1d|default(0)) }}%</div>
+                        <div class="change {{ 'up' if (r.change_1d|default(0)) >= 0 else 'down' }}">{{ '%+.1f'|format(r.change_1d|default(0)) }}%</div>
                     </div>
                 </div>
-                {% set ps = r.presignal_score|default(0)|int %}
-                <div class="score-bar-wrap">
-                    <div class="score-bar"
-                        style="width:{{ ps }}%;background:{% if ps >= 60 %}#f59e0b{% elif ps >= 40 %}#34d399{% elif ps >= 20 %}#60a5fa{% else %}#666{% endif %}">
-                    </div>
-                </div>
-                <div class="pre-metrics">
-                    <div class="metric"><span class="k">RSI</span> <span class="v">{{ r.rsi|default(50)|round(1)
-                            }}</span></div>
-                    <div class="metric"><span class="k">Stoch %K</span> <span class="v">{{
-                            r.stoch_k|default(50)|round(1) }}</span></div>
-                    <div class="metric"><span class="k">거래량</span> <span class="v">{{ r.volume_ratio|default(1.0)
-                            }}x</span></div>
-                    <div class="metric"><span class="k">BB 폭 %ile</span> <span class="v">{{
-                            r.bb_width_percentile|default(50) }}%</span></div>
-                    <div class="metric"><span class="k">ATR %ile</span> <span class="v">{{ r.atr_percentile|default(50)
-                            }}%</span></div>
-                    <div class="metric"><span class="k">MA50-200 갭</span> <span class="v">{{ r.ma50_ma200_gap|default(0)
-                            }}%</span></div>
-                    <div class="metric"><span class="k">MA</span> <span class="v">{{ r.ma_trend|default('') }}</span>
-                    </div>
-                    <div class="metric"><span class="k">구름</span> <span class="v">{{ r.cloud_status|default('')
-                            }}</span></div>
-                </div>
-                <div class="targets">
-                    <span class="target-tag tgt-1">🎯1 ${{ r.target_1|default(0) }}</span>
-                    <span class="target-tag tgt-2">🎯2 ${{ r.target_2|default(0) }}</span>
-                    <span class="target-tag tgt-stop">🛑 ${{ r.stop_loss|default(0) }}</span>
-                </div>
-                {% if r.presignal_signals %}
-                <div class="pre-signals">{% for s in r.presignal_signals %}<div class="pre-signal-item">{{ s }}</div>{%
-                    endfor %}</div>
-                {% endif %}
+                <div class="pre-signals">{% for s in r.presignal_signals %}<div class="pre-signal-item">{{ s }}</div>{% endfor %}</div>
             </div>
             {% endfor %}
             {% else %}
-            <div class="empty">아직 선행 신호 결과가 없습니다.<br>유니버스를 선택하고 🔮 버튼을 눌러주세요.</div>
+            <div class="empty">선행 결과 없음</div>
+            {% endif %}
+        </div>
+
+        <!-- 확신 탭 -->
+        <div class="tab-content" id="tab-conviction">
+            {% if conviction_data and conviction_data.results is defined %}
+            <div class="stats">
+                <div class="stat-card"><div class="num" style="color:#ef4444">{{ conviction_data.conviction|default(0) }}</div><div class="label">⭐ 확신</div></div>
+                <div class="stat-card"><div class="num" style="color:#f59e0b">{{ conviction_data.strong|default(0) }}</div><div class="label">🔥 유력</div></div>
+            </div>
+            {% for r in conviction_data.results %}
+            <div class="pre-card {{ r.grade_key|default('weak') }}">
+                <div class="pre-grade">{{ r.conviction_grade|default('') }} {{ r.conviction_score|default(0) }}점</div>
+                <div class="card-header">
+                    <div><span class="ticker">{{ r.ticker|default('') }}</span></div>
+                    <div class="price-info">
+                        <div class="price">${{ r.price|default(0) }}</div>
+                        <div class="change {{ 'up' if (r.change_1d|default(0)) >= 0 else 'down' }}">{{ '%+.1f'|format(r.change_1d|default(0)) }}%</div>
+                    </div>
+                </div>
+                <div class="pre-metrics">
+                     <div class="metric"><span class="k">필터 적중</span> <span class="v">{{ r.filters_hit|default(0) }}개</span></div>
+                     <div class="metric"><span class="k">보너스</span> <span class="v">{{ r.overlap_bonus|default(1.0) }}x</span></div>
+                </div>
+                <div class="pre-signals">{% for s in r.conviction_signals %}<div class="pre-signal-item">{{ s }}</div>{% endfor %}</div>
+            </div>
+            {% endfor %}
+            {% else %}
+            <div class="empty">확신 결과 없음</div>
             {% endif %}
         </div>
 
         <div class="meta">
-            {% if data and data.analyzed_at is defined %}모멘텀: {{ data.analyzed_at }} | {% endif %}
-            {% if presignal_data and presignal_data.analyzed_at is defined %}선행: {{ presignal_data.analyzed_at }} ({{
-            presignal_data.universe|default('') }}) | {% endif %}
             Finviz + yfinance + Finnhub
         </div>
     </div>
 
     <script>
         const CSRF = "{{ csrf_token() }}";
-
         function switchTab(t) {
-            document.querySelectorAll('.tab').forEach(function (e) { e.classList.remove('active'); });
-            document.querySelectorAll('.tab-content').forEach(function (e) { e.classList.remove('active'); });
-            document.querySelector('.tab[data-tab="' + t + '"]').classList.add('active');
-            document.getElementById('tab-' + t).classList.add('active');
+            document.querySelectorAll('.tab').forEach(e => e.classList.remove('active'));
+            document.querySelectorAll('.tab-content').forEach(e => e.classList.remove('active'));
+            document.querySelector('.tab[data-tab="'+t+'"]').classList.add('active');
+            document.getElementById('tab-'+t).classList.add('active');
         }
-
-        {% if presignal_data and not data %}
-        switchTab('presignal');
-        {% endif %}
-
         function startRefresh(mode) {
-            var btn = document.getElementById(mode === 'presignal' ? 'btnPresignal' : 'btnMomentum');
-            if (btn) btn.disabled = true;
-            var body = { mode: mode };
-            if (mode === 'presignal') {
-                body.universe = document.getElementById('selUniverse').value;
-            }
+            let body = { mode: mode, universe: document.getElementById('selUniverse').value };
             fetch('/refresh', {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json', 'X-CSRF-Token': CSRF },
                 body: JSON.stringify(body)
-            })
-                .then(function (r) { return r.json(); })
-                .then(function (d) {
-                    if (d.status === 'started') pollStatus(mode);
-                    else if (btn) btn.disabled = false;
-                })
-                .catch(function () { if (btn) btn.disabled = false; });
+            }).then(r => r.json()).then(d => { if(d.status==='started') pollStatus(mode); });
         }
-
         function pollStatus(mode) {
-            var interval = 3000;
-            var maxInterval = 15000;
-            function poll() {
-                fetch('/status')
-                    .then(function (r) { return r.json(); })
-                    .then(function (d) {
-                        var key = mode === 'presignal' ? 'analyzing_presignal' : 'analyzing';
-                        if (!d[key]) { location.reload(); return; }
-                        interval = Math.min(interval * 1.3, maxInterval);
-                        setTimeout(poll, interval);
-                    })
-                    .catch(function () { setTimeout(poll, interval); });
-            }
-            setTimeout(poll, interval);
+            setTimeout(() => {
+                fetch('/status').then(r => r.json()).then(d => {
+                    let key = mode==='presignal' ? 'analyzing_presignal' : (mode==='conviction' ? 'analyzing_conviction' : 'analyzing');
+                    if(!d[key]) location.reload(); else pollStatus(mode);
+                });
+            }, 3000);
         }
     </script>
 </body>
-
 </html>
