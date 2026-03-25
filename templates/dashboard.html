@@ -146,8 +146,15 @@
         }
 
         @keyframes pulse {
-            0%, 100% { opacity: 1 }
-            50% { opacity: .5 }
+
+            0%,
+            100% {
+                opacity: 1
+            }
+
+            50% {
+                opacity: .5
+            }
         }
 
         .stats {
@@ -184,8 +191,13 @@
             border-left: 3px solid #8b5cf6
         }
 
-        .section-title.pre { border-left-color: #f59e0b }
-        .section-title.conv { border-left-color: #ef4444 }
+        .section-title.pre {
+            border-left-color: #f59e0b
+        }
+
+        .section-title.conv {
+            border-left-color: #ef4444
+        }
 
         .error-banner {
             background: rgba(239, 68, 68, .15);
@@ -196,8 +208,13 @@
             color: #fca5a5
         }
 
-        .tab-content { display: none }
-        .tab-content.active { display: block }
+        .tab-content {
+            display: none
+        }
+
+        .tab-content.active {
+            display: block
+        }
 
         .card {
             background: rgba(255, 255, 255, .06);
@@ -226,11 +243,27 @@
             color: #fff
         }
 
-        .price-info { text-align: right }
-        .price { font-size: 1.05rem; font-weight: 600 }
-        .change { font-size: .85rem; font-weight: 600 }
-        .change.up { color: #34d399 }
-        .change.down { color: #f87171 }
+        .price-info {
+            text-align: right
+        }
+
+        .price {
+            font-size: 1.05rem;
+            font-weight: 600
+        }
+
+        .change {
+            font-size: .85rem;
+            font-weight: 600
+        }
+
+        .change.up {
+            color: #34d399
+        }
+
+        .change.down {
+            color: #f87171
+        }
 
         .score-bar-wrap {
             background: rgba(255, 255, 255, .08);
@@ -260,8 +293,14 @@
             border-radius: 6px
         }
 
-        .metric .k { color: #999 }
-        .metric .v { color: #e0e0e0; font-weight: 600 }
+        .metric .k {
+            color: #999
+        }
+
+        .metric .v {
+            color: #e0e0e0;
+            font-weight: 600
+        }
 
         .signals {
             display: flex;
@@ -284,10 +323,25 @@
             font-size: .78rem
         }
 
-        .target-tag { padding: 4px 10px; border-radius: 6px }
-        .tgt-1 { background: rgba(52, 211, 153, .15); color: #34d399 }
-        .tgt-2 { background: rgba(96, 165, 250, .15); color: #60a5fa }
-        .tgt-stop { background: rgba(248, 113, 113, .15); color: #f87171 }
+        .target-tag {
+            padding: 4px 10px;
+            border-radius: 6px
+        }
+
+        .tgt-1 {
+            background: rgba(52, 211, 153, .15);
+            color: #34d399
+        }
+
+        .tgt-2 {
+            background: rgba(96, 165, 250, .15);
+            color: #60a5fa
+        }
+
+        .tgt-stop {
+            background: rgba(248, 113, 113, .15);
+            color: #f87171
+        }
 
         .pre-card {
             background: rgba(255, 255, 255, .06);
@@ -299,12 +353,29 @@
             position: relative
         }
 
-        .pre-card:hover { transform: translateY(-1px) }
+        .pre-card:hover {
+            transform: translateY(-1px)
+        }
 
-        .pre-card.strong { border-left: 3px solid #f59e0b; border-color: rgba(245,158,11,.4); }
-        .pre-card.watch { border-left: 3px solid #34d399; border-color: rgba(52,211,153,.4); }
-        .pre-card.wait { border-left: 3px solid #60a5fa; border-color: rgba(96,165,250,.4); }
-        .pre-card.conviction { border-left: 3px solid #ef4444; border-color: rgba(239,68,68,.4); }
+        .pre-card.strong {
+            border-left: 3px solid #f59e0b;
+            border-color: rgba(245, 158, 11, .4);
+        }
+
+        .pre-card.watch {
+            border-left: 3px solid #34d399;
+            border-color: rgba(52, 211, 153, .4);
+        }
+
+        .pre-card.wait {
+            border-left: 3px solid #60a5fa;
+            border-color: rgba(96, 165, 250, .4);
+        }
+
+        .pre-card.conviction {
+            border-left: 3px solid #ef4444;
+            border-color: rgba(239, 68, 68, .4);
+        }
 
         .pre-grade {
             position: absolute;
@@ -314,13 +385,19 @@
             font-weight: 700
         }
 
-        .pre-signals { margin-top: 10px }
+        .pre-signals {
+            margin-top: 10px
+        }
+
         .pre-signal-item {
             font-size: .8rem;
             padding: 4px 0;
             border-bottom: 1px solid rgba(255, 255, 255, .04)
         }
-        .pre-signal-item:last-child { border: none }
+
+        .pre-signal-item:last-child {
+            border: none
+        }
 
         .meta {
             text-align: center;
@@ -329,10 +406,26 @@
             margin-top: 20px
         }
 
-        a { color: #a78bfa; text-decoration: none }
-        a:hover { text-decoration: underline }
-        .nav-link { font-size: .85rem; margin-left: 12px }
-        .empty { text-align: center; padding: 60px; color: #666; font-size: 1rem }
+        a {
+            color: #a78bfa;
+            text-decoration: none
+        }
+
+        a:hover {
+            text-decoration: underline
+        }
+
+        .nav-link {
+            font-size: .85rem;
+            margin-left: 12px
+        }
+
+        .empty {
+            text-align: center;
+            padding: 60px;
+            color: #666;
+            font-size: 1rem
+        }
     </style>
 </head>
 
@@ -357,7 +450,8 @@
                     <option value="sp500+sox">ALL</option>
                 </select>
                 <button class="btn btn-presignal" id="btnPresignal" onclick="startRefresh('presignal')">🔮 선행</button>
-                <button class="btn btn-conviction" id="btnConviction" onclick="startRefresh('conviction')">🎯 확신</button>
+                <button class="btn btn-conviction" id="btnConviction" onclick="startRefresh('conviction')">🎯
+                    확신</button>
                 {% if analyzing %}<span class="badge badge-analyzing">모멘텀 중…</span>{% endif %}
                 {% if analyzing_presignal %}<span class="badge badge-analyzing">선행 중…</span>{% endif %}
                 {% if analyzing_conviction %}<span class="badge badge-analyzing">확신 중…</span>{% endif %}
@@ -365,7 +459,14 @@
             {% else %}
             <div><a href="/" class="btn btn-primary">← 대시보드로</a></div>
             {% endif %}
-            <div><a href="/backtest" class="btn" style="background:rgba(245,158,11,.2);color:#f59e0b;padding:8px 16px;border-radius:8px;font-size:.8rem;font-weight:600;text-decoration:none;">🔬 백테스트 검증</a></div>
+            <div><a href="/backtest" class="btn"
+                    style="background:rgba(245,158,11,.2);color:#f59e0b;padding:8px 16px;border-radius:8px;font-size:.8rem;font-weight:600;text-decoration:none;">🔬
+                    백테스트 검증</a></div>
+
+            <div><a href="/longterm" class="btn"
+                    style="background:rgba(34,197,94,.2);color:#22c55e;padding:8px 16px;border-radius:8px;font-size:.8rem;font-weight:600;text-decoration:none;">📋
+                    중장기</a></div>
+
         </header>
 
         {% if error %}<div class="error-banner">⚠️ {{ error }}</div>{% endif %}
@@ -374,10 +475,22 @@
         <div class="tab-content active" id="tab-momentum">
             {% if data and data.results is defined and data.results|length > 0 %}
             <div class="stats">
-                <div class="stat-card"><div class="num">{{ data.results|length }}</div><div class="label">총 종목</div></div>
-                <div class="stat-card"><div class="num" style="color:#34d399">{{ data.green|default(0) }}</div><div class="label">🟢 매수</div></div>
-                <div class="stat-card"><div class="num" style="color:#fbbf24">{{ data.wait|default(0) }}</div><div class="label">⏳ 관망</div></div>
-                <div class="stat-card"><div class="num" style="color:#f87171">{{ data.stop|default(0) }}</div><div class="label">❌ 주의</div></div>
+                <div class="stat-card">
+                    <div class="num">{{ data.results|length }}</div>
+                    <div class="label">총 종목</div>
+                </div>
+                <div class="stat-card">
+                    <div class="num" style="color:#34d399">{{ data.green|default(0) }}</div>
+                    <div class="label">🟢 매수</div>
+                </div>
+                <div class="stat-card">
+                    <div class="num" style="color:#fbbf24">{{ data.wait|default(0) }}</div>
+                    <div class="label">⏳ 관망</div>
+                </div>
+                <div class="stat-card">
+                    <div class="num" style="color:#f87171">{{ data.stop|default(0) }}</div>
+                    <div class="label">❌ 주의</div>
+                </div>
             </div>
             {% for r in data.results %}
             <div class="card">
@@ -385,15 +498,23 @@
                     <div><span class="ticker">{{ r.entry|default('') }} {{ r.ticker|default('') }}</span></div>
                     <div class="price-info">
                         <div class="price">${{ r.price|default(0) }}</div>
-                        <div class="change {{ 'up' if (r.change_1d|default(0)) >= 0 else 'down' }}">{{ '%+.1f'|format(r.change_1d|default(0)) }}%</div>
+                        <div class="change {{ 'up' if (r.change_1d|default(0)) >= 0 else 'down' }}">{{
+                            '%+.1f'|format(r.change_1d|default(0)) }}%</div>
                     </div>
                 </div>
                 {% set score = r.score|default(0)|int %}
-                <div class="score-bar-wrap"><div class="score-bar" style="width:{{ score }}%;background:{% if score >= 65 %}#34d399{% elif score >= 45 %}#fbbf24{% else %}#f87171{% endif %}"></div></div>
+                <div class="score-bar-wrap">
+                    <div class="score-bar"
+                        style="width:{{ score }}%;background:{% if score >= 65 %}#34d399{% elif score >= 45 %}#fbbf24{% else %}#f87171{% endif %}">
+                    </div>
+                </div>
                 <div class="metrics">
-                    <div class="metric"><span class="k">RSI</span> <span class="v">{{ r.rsi|default(50)|round(1) }}</span></div>
-                    <div class="metric"><span class="k">MACD</span> <span class="v">{{ r.macd_histogram|default(0)|round(4) }}</span></div>
-                    <div class="metric"><span class="k">거래량</span> <span class="v">{{ r.volume_ratio|default(1.0) }}x</span></div>
+                    <div class="metric"><span class="k">RSI</span> <span class="v">{{ r.rsi|default(50)|round(1)
+                            }}</span></div>
+                    <div class="metric"><span class="k">MACD</span> <span class="v">{{
+                            r.macd_histogram|default(0)|round(4) }}</span></div>
+                    <div class="metric"><span class="k">거래량</span> <span class="v">{{ r.volume_ratio|default(1.0)
+                            }}x</span></div>
                 </div>
                 <div class="targets">
                     <span class="target-tag tgt-1">🎯1 ${{ r.target_1|default(0) }}</span>
@@ -416,10 +537,12 @@
                     <div><span class="ticker">{{ r.ticker|default('') }}</span></div>
                     <div class="price-info">
                         <div class="price">${{ r.price|default(0) }}</div>
-                        <div class="change {{ 'up' if (r.change_1d|default(0)) >= 0 else 'down' }}">{{ '%+.1f'|format(r.change_1d|default(0)) }}%</div>
+                        <div class="change {{ 'up' if (r.change_1d|default(0)) >= 0 else 'down' }}">{{
+                            '%+.1f'|format(r.change_1d|default(0)) }}%</div>
                     </div>
                 </div>
-                <div class="pre-signals">{% for s in r.presignal_signals %}<div class="pre-signal-item">{{ s }}</div>{% endfor %}</div>
+                <div class="pre-signals">{% for s in r.presignal_signals %}<div class="pre-signal-item">{{ s }}</div>{%
+                    endfor %}</div>
             </div>
             {% endfor %}
             {% else %}
@@ -431,8 +554,14 @@
         <div class="tab-content" id="tab-conviction">
             {% if conviction_data and conviction_data.results is defined %}
             <div class="stats">
-                <div class="stat-card"><div class="num" style="color:#ef4444">{{ conviction_data.conviction|default(0) }}</div><div class="label">⭐ 확신</div></div>
-                <div class="stat-card"><div class="num" style="color:#f59e0b">{{ conviction_data.strong|default(0) }}</div><div class="label">🔥 유력</div></div>
+                <div class="stat-card">
+                    <div class="num" style="color:#ef4444">{{ conviction_data.conviction|default(0) }}</div>
+                    <div class="label">⭐ 확신</div>
+                </div>
+                <div class="stat-card">
+                    <div class="num" style="color:#f59e0b">{{ conviction_data.strong|default(0) }}</div>
+                    <div class="label">🔥 유력</div>
+                </div>
             </div>
             {% for r in conviction_data.results %}
             <div class="pre-card {{ r.grade_key|default('weak') }}">
@@ -441,14 +570,18 @@
                     <div><span class="ticker">{{ r.ticker|default('') }}</span></div>
                     <div class="price-info">
                         <div class="price">${{ r.price|default(0) }}</div>
-                        <div class="change {{ 'up' if (r.change_1d|default(0)) >= 0 else 'down' }}">{{ '%+.1f'|format(r.change_1d|default(0)) }}%</div>
+                        <div class="change {{ 'up' if (r.change_1d|default(0)) >= 0 else 'down' }}">{{
+                            '%+.1f'|format(r.change_1d|default(0)) }}%</div>
                     </div>
                 </div>
                 <div class="pre-metrics">
-                     <div class="metric"><span class="k">필터 적중</span> <span class="v">{{ r.filters_hit|default(0) }}개</span></div>
-                     <div class="metric"><span class="k">보너스</span> <span class="v">{{ r.overlap_bonus|default(1.0) }}x</span></div>
+                    <div class="metric"><span class="k">필터 적중</span> <span class="v">{{ r.filters_hit|default(0)
+                            }}개</span></div>
+                    <div class="metric"><span class="k">보너스</span> <span class="v">{{ r.overlap_bonus|default(1.0)
+                            }}x</span></div>
                 </div>
-                <div class="pre-signals">{% for s in r.conviction_signals %}<div class="pre-signal-item">{{ s }}</div>{% endfor %}</div>
+                <div class="pre-signals">{% for s in r.conviction_signals %}<div class="pre-signal-item">{{ s }}</div>{%
+                    endfor %}</div>
             </div>
             {% endfor %}
             {% else %}
@@ -466,8 +599,8 @@
         function switchTab(t) {
             document.querySelectorAll('.tab').forEach(e => e.classList.remove('active'));
             document.querySelectorAll('.tab-content').forEach(e => e.classList.remove('active'));
-            document.querySelector('.tab[data-tab="'+t+'"]').classList.add('active');
-            document.getElementById('tab-'+t).classList.add('active');
+            document.querySelector('.tab[data-tab="' + t + '"]').classList.add('active');
+            document.getElementById('tab-' + t).classList.add('active');
         }
         function startRefresh(mode) {
             let body = { mode: mode, universe: document.getElementById('selUniverse').value };
@@ -475,16 +608,17 @@
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json', 'X-CSRF-Token': CSRF },
                 body: JSON.stringify(body)
-            }).then(r => r.json()).then(d => { if(d.status==='started') pollStatus(mode); });
+            }).then(r => r.json()).then(d => { if (d.status === 'started') pollStatus(mode); });
         }
         function pollStatus(mode) {
             setTimeout(() => {
                 fetch('/status').then(r => r.json()).then(d => {
-                    let key = mode==='presignal' ? 'analyzing_presignal' : (mode==='conviction' ? 'analyzing_conviction' : 'analyzing');
-                    if(!d[key]) location.reload(); else pollStatus(mode);
+                    let key = mode === 'presignal' ? 'analyzing_presignal' : (mode === 'conviction' ? 'analyzing_conviction' : 'analyzing');
+                    if (!d[key]) location.reload(); else pollStatus(mode);
                 });
             }, 3000);
         }
     </script>
 </body>
+
 </html>
