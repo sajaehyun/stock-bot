@@ -1,491 +1,336 @@
+"""
+S&P 500 Momentum Dashboard — Flask App
+───────────────────────────────────────
+• CSRF: context_processor + session 기반 직접 구현 (flask-wtf 불필요)
+• Path Traversal 방어
+• 중택 락 제거 (_update_results_unlocked)
+• double-checked locking 수정
+• bot.analyze() 에러 명시적 처리
+• 히스토리 카운트 직접 계산 (폴백)
+"""
+
 import os
-import glob
-import json
-import threading
 import re
-import traceback
-from flask import Flask, render_template_string, redirect, url_for, jsonify
+import json
+import secrets
+import threading
+import pathlib
+import logging
 from datetime import datetime
-from bot import analyze
 
+from flask import (
+    Flask, render_template, jsonify, request,
+    redirect, url_for, abort, session,
+)
+from dotenv import load_dotenv
+
+load_dotenv()
+
+import bot
+
+# ──────────────────────────── Flask 앱 ─────────────────────────────
 app = Flask(__name__)
+app.jinja_env.autoescape = True
+app.secret_key = os.getenv("FLASK_SECRET_KEY", secrets.token_hex(32))
 
-# ─────────────────────────────
-# 전역 상수
-# ─────────────────────────────
-ENTRY_EMOJI_MAP = {'🟢': 'green', '⏳': 'wait', '❌': 'stop'}
+log = logging.getLogger(__name__)
 
+HISTORY_DIR = pathlib.Path("history")
+HISTORY_DIR.mkdir(exist_ok=True)
 
-def preprocess_data(data_raw):
-    results = []
-    g_cnt = 0
-    w_cnt = 0
-
-    for item in data_raw:
-        p = dict(item)
-        entry_str = p.get('entry', '')
-        p['entry_key'] = 'unknown'
-
-        for emoji, key in ENTRY_EMOJI_MAP.items():
-            if emoji in entry_str:
-                p['entry_key'] = key
-                if emoji == '🟢': g_cnt += 1
-                elif emoji == '⏳': w_cnt += 1
-                break
-
-        results.append(p)
-
-    return results, g_cnt, w_cnt
+HISTORY_FILENAME_PATTERN = r"^\d{4}-\d{2}-\d{2}_\d{6}$"
+_HISTORY_NAME_RE = re.compile(HISTORY_FILENAME_PATTERN)
+HISTORY_PAGE_SIZE = 50
 
 
-# ─────────────────────────────
-# 상태 관리
-# ─────────────────────────────
+# ═══════════════════════════════════════════════════════════════════
+# CSRF — flask-wtf 없이 직접 구현
+# ═══════════════════════════════════════════════════════════════════
+
+@app.context_processor
+def inject_csrf():
+    """모든 템플릿에 csrf_token() 함수 주입."""
+    def _csrf_token():
+        if "_csrf_token" not in session:
+            session["_csrf_token"] = secrets.token_hex(32)
+        return session["_csrf_token"]
+    return {"csrf_token": _csrf_token}
+
+
+def _validate_csrf():
+    """POST 요청의 CSRF 토큰 검증."""
+    token = (
+        request.form.get("_csrf_token")
+        or request.headers.get("X-CSRF-Token", "")
+    )
+    if not token or token != session.get("_csrf_token"):
+        abort(403, description="CSRF 토큰 검증 실패")
+
+
+# ═══════════════════════════════════════════════════════════════════
+# 날짜 포맷 헬퍼
+# ═══════════════════════════════════════════════════════════════════
+
+def _format_history_label(filename_stem: str) -> str:
+    try:
+        if len(filename_stem) >= 17 and "_" in filename_stem:
+            date_part, time_part = filename_stem.split("_", 1)
+            if len(time_part) == 6:
+                formatted_time = f"{time_part[:2]}:{time_part[2:4]}:{time_part[4:6]}"
+                return f"{date_part} {formatted_time}"
+        return filename_stem
+    except Exception:
+        return filename_stem
+
+
+# ═══════════════════════════════════════════════════════════════════
+# 히스토리 카운트 헬퍼
+# ═══════════════════════════════════════════════════════════════════
+
+def _count_entries(results: list) -> dict:
+    green = wait = stop = 0
+    for r in results:
+        key = r.get("entry_key", "")
+        if key == "green":
+            green += 1
+        elif key == "wait":
+            wait += 1
+        elif key == "stop":
+            stop += 1
+        else:
+            entry = r.get("entry", "")
+            if "🟢" in entry:
+                green += 1
+            elif "⏳" in entry:
+                wait += 1
+            elif "❌" in entry:
+                stop += 1
+    return {"green": green, "wait": wait, "stop": stop}
+
+
+# ═══════════════════════════════════════════════════════════════════
+# 스레드-안전 상태 관리
+# ═══════════════════════════════════════════════════════════════════
+
 class AppState:
     def __init__(self):
-        self.processed_results = []
-        self.green_count = 0
-        self.wait_count = 0
-        self.last_update = "분석된 적 없음"
-        self.analyzed_at = "-"
-        self.is_analyzing = False
-        self.last_error = None
-        self.lock = threading.RLock()
+        self._lock = threading.RLock()
+        self.processed_results: list = []
+        self.green_count: int = 0
+        self.wait_count: int = 0
+        self.stop_count: int = 0
+        self.last_update: str = "-"
+        self.analyzed_at: str = "-"
+        self.is_analyzing: bool = False
+        self.last_error: str = ""
+        self._history_loaded: bool = False
 
-    def update_results(self, data_dict):
-        with self.lock:
-            results_raw = data_dict.get('results', [])
+    def _update_results_unlocked(self, data: dict):
+        """락을 이미 보유한 상태에서만 호출."""
+        results = data.get("results", [])
+        self.processed_results = results
+        if "green" in data and "wait" in data and "stop" in data:
+            self.green_count = data["green"]
+            self.wait_count = data["wait"]
+            self.stop_count = data["stop"]
+        else:
+            counts = _count_entries(results)
+            self.green_count = counts["green"]
+            self.wait_count = counts["wait"]
+            self.stop_count = counts["stop"]
+        self.analyzed_at = data.get("analyzed_at", "-")
+        self.last_update = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+        self.last_error = data.get("error", "")
 
-            if not results_raw:
-                raise ValueError("결과가 비어있음")
+    def update_results(self, data: dict):
+        with self._lock:
+            self._update_results_unlocked(data)
 
-            self.processed_results, self.green_count, self.wait_count = \
-                preprocess_data(results_raw)
+    def ensure_history_loaded(self):
+        with self._lock:
+            if self._history_loaded:
+                return
 
-            self.last_update = datetime.now().strftime('%Y-%m-%d %H:%M:%S')
-            # 가장 최신 분석 시간을 표시
-            self.analyzed_at = results_raw[0].get('analyzed_at', '-')
-            self.last_error = None
+        # 락 밖에서 I/O
+        data = None
+        loaded_file = None
+        try:
+            files = sorted(HISTORY_DIR.glob("*.json"), reverse=True)
+            if files:
+                loaded_file = files[0].name
+                with open(files[0], "r", encoding="utf-8") as f:
+                    data = json.load(f)
+        except Exception as e:
+            log.warning("히스토리 로드 오류: %s", e)
 
-    def load_latest_history(self):
-        """무조건 히스토리에서라도 데이터 불러오기"""
-        history_dir = "history"
-        if not os.path.exists(history_dir):
-            return False
-            
-        files = sorted(
-            glob.glob(os.path.join(history_dir, "*.json")),
-            reverse=True
-        )
+        # double-checked locking
+        with self._lock:
+            if self._history_loaded:
+                return
+            self._history_loaded = True
+            if data:
+                self._update_results_unlocked(data)
+                log.info("히스토리 로드: %s", loaded_file)
 
-        for f in files:
-            try:
-                with open(f, 'r', encoding='utf-8') as fp:
-                    data = json.load(fp)
-
-                if data.get('results'):
-                    print(f"[Fallback] {f} 로드 성공")
-                    self.update_results(data)
-                    return True
-            except Exception:
-                continue
-
-        return False
-
-    def start_analyzing(self):
-        with self.lock:
+    def start_analyzing(self) -> bool:
+        with self._lock:
             if self.is_analyzing:
                 return False
             self.is_analyzing = True
-            self.last_error = None
+            self.last_error = ""
             return True
 
-    def finish_analyzing(self, error=None):
-        with self.lock:
+    def finish_analyzing(self, data: dict = None, error: str = ""):
+        with self._lock:
             self.is_analyzing = False
-            self.last_error = error
+            if data:
+                self._update_results_unlocked(data)
+            if error:
+                self.last_error = error
 
-    def get_snapshot(self):
-        with self.lock:
+    def get_snapshot(self) -> dict:
+        with self._lock:
             return {
-                'data': self.processed_results,
-                'green_count': self.green_count,
-                'wait_count': self.wait_count,
-                'last_update': self.last_update,
-                'analyzed_at': self.analyzed_at,
-                'is_analyzing': self.is_analyzing,
-                'last_error': self.last_error,
+                "results": list(self.processed_results),
+                "green_count": self.green_count,
+                "wait_count": self.wait_count,
+                "stop_count": self.stop_count,
+                "last_update": self.last_update,
+                "analyzed_at": self.analyzed_at,
+                "is_analyzing": self.is_analyzing,
+                "last_error": self.last_error,
             }
 
 
 state = AppState()
 
 
-# ─────────────────────────────
-# 분석 실행
-# ─────────────────────────────
-def run_analysis_background():
-    error_msg = None
+# ═══════════════════════════════════════════════════════════════════
+# 히스토리 헬퍼
+# ═══════════════════════════════════════════════════════════════════
 
+def get_available_dates(limit: int = HISTORY_PAGE_SIZE) -> list[dict]:
+    files = sorted(HISTORY_DIR.glob("*.json"), reverse=True)[:limit]
+    result = []
+    for f in files:
+        stem = f.stem
+        if _HISTORY_NAME_RE.match(stem):
+            result.append({"key": stem, "label": _format_history_label(stem)})
+    return result
+
+
+def get_history_data(date_str: str) -> dict | None:
+    path = HISTORY_DIR / f"{date_str}.json"
+    if not path.exists():
+        return None
     try:
-        print("\n[DEBUG] analyze() 실행 시작")
-        result = analyze()
-        print("[DEBUG] analyze() 결과 수신됨")
+        with open(path, "r", encoding="utf-8") as f:
+            return json.load(f)
+    except Exception:
+        return None
 
-        if not result or not result.get("results"):
-            raise ValueError("analyze 결과 데이터 부재")
 
-        state.update_results(result)
+# ═══════════════════════════════════════════════════════════════════
+# 백그라운드 분석
+# ═══════════════════════════════════════════════════════════════════
 
+def run_analysis_background():
+    try:
+        result = bot.analyze()
+        if result and isinstance(result, dict):
+            error_msg = result.get("error", "")
+            if error_msg:
+                state.finish_analyzing(data=result, error=error_msg)
+            else:
+                state.finish_analyzing(data=result)
+        else:
+            state.finish_analyzing(error="분석 결과 없음")
     except Exception as e:
-        traceback.print_exc()
-        error_msg = str(e)
-        print(f"[ERROR] 분석 실패: {error_msg} → fallback 시도")
-
-        if not state.load_latest_history():
-            print("[ERROR] fallback 로드 마저 실패")
-
-    finally:
-        state.finish_analyzing(error_msg)
+        log.error("백그라운드 분석 오류: %s", e, exc_info=True)
+        state.finish_analyzing(error=str(e))
 
 
-# ─ HTML 템플릿 (UI 보강 및 지표 동기화) ────────────────
-HTML_TEMPLATE = """
-<!DOCTYPE html>
-<html lang="ko">
-<head>
-    <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Stock-Bot · Momentum & Technical Dashboard</title>
-    <link rel="preconnect" href="https://fonts.googleapis.com">
-    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700;800&display=swap" rel="stylesheet">
-    <style>
-        :root {
-            --bg:      #07080f;
-            --bg2:     #0e0f1c;
-            --bg3:     #14162a;
-            --border:  rgba(255,255,255,0.07);
-            --accent:  #6366f1;
-            --accent2: #8b5cf6;
-            --green:   #22c55e;
-            --cyan:    #06b6d4;
-            --yellow:  #eab308;
-            --orange:  #f97316;
-            --red:     #ef4444;
-            --text:    #e2e8f0;
-            --muted:   #64748b;
-        }
-        * { box-sizing: border-box; margin: 0; padding: 0; }
-        body { background: var(--bg); color: var(--text); font-family: 'Inter', sans-serif; min-height: 100vh; }
-
-        .header {
-            background: linear-gradient(135deg, #0e0f1c 0%, #14162a 100%);
-            border-bottom: 1px solid var(--border);
-            padding: 16px 32px; position: sticky; top: 0; z-index: 100;
-            backdrop-filter: blur(20px);
-        }
-        .header-inner {
-            max-width: 1600px; margin: 0 auto;
-            display: flex; align-items: center; justify-content: space-between; gap: 20px;
-        }
-        .logo { display: flex; align-items: center; gap: 12px; }
-        .logo-icon p { font-size: 20px; }
-        .logo-text h1 {
-            font-size: 18px; font-weight: 700;
-            background: linear-gradient(135deg, #a5b4fc, #e879f9);
-            -webkit-background-clip: text; -webkit-text-fill-color: transparent;
-        }
-        .header-controls { display: flex; align-items: center; gap: 12px; }
-        .last-update { font-size: 12px; color: var(--muted); }
-
-        .btn {
-            padding: 9px 18px; border-radius: 8px; font-size: 13px; font-weight: 600;
-            cursor: pointer; border: none; text-decoration: none; transition: all 0.2s;
-        }
-        .btn-primary { background: linear-gradient(135deg, var(--accent), var(--accent2)); color: #fff; }
-        .btn-ghost   { background: var(--bg3); color: var(--muted); border: 1px solid var(--border); }
-
-        .main { max-width: 1600px; margin: 0 auto; padding: 28px 32px; }
-
-        .error-banner {
-            background: rgba(239,68,68,0.1); border: 1px solid var(--red);
-            color: var(--red); padding: 12px 20px; border-radius: 8px;
-            margin-bottom: 24px; font-size: 14px;
-            display: flex; align-items: center; gap: 10px;
-        }
-
-        .stats-row {
-            display: grid; grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));
-            gap: 14px; margin-bottom: 24px;
-        }
-        .stat-card {
-            background: var(--bg2); border: 1px solid var(--border); border-radius: 12px;
-            padding: 16px 20px; text-align: center;
-        }
-        .stat-card .val { font-size: 26px; font-weight: 800; color: var(--accent); }
-        .stat-card .lbl { font-size: 11px; color: var(--muted); margin-top: 4px; }
-
-        .stock-grid {
-            display: grid; grid-template-columns: repeat(auto-fill, minmax(400px, 1fr)); gap: 20px;
-        }
-        .stock-card {
-            background: var(--bg2); border: 1px solid var(--border); border-radius: 16px;
-            padding: 22px; position: relative; transition: all 0.2s;
-        }
-        .stock-card:hover {
-            transform: translateY(-3px); border-color: var(--accent);
-            box-shadow: 0 8px 30px rgba(99,102,241,0.1);
-        }
-
-        .card-head { display: flex; justify-content: space-between; margin-bottom: 16px; }
-        .card-ticker { font-size: 24px; font-weight: 800; color: #fff; }
-        .card-price { text-align: right; }
-        .card-price .price { font-size: 20px; font-weight: 700; color: var(--text); }
-        .card-price .change { font-size: 13px; font-weight: 600; }
-        .change.pos  { color: var(--green); }
-        .change.neg  { color: var(--red); }
-        .change.zero { color: var(--muted); }
-
-        .entry-badge {
-            display: inline-block; padding: 5px 12px; border-radius: 20px;
-            font-size: 12px; font-weight: 700; margin-bottom: 16px;
-        }
-        .entry-green   { background: rgba(34,197,94,0.1);  color: var(--green);  border: 1px solid rgba(34,197,94,0.2); }
-        .entry-wait    { background: rgba(234,179,8,0.1);  color: var(--yellow); border: 1px solid rgba(234,179,8,0.2); }
-        .entry-stop    { background: rgba(239,68,68,0.1);  color: var(--red);    border: 1px solid rgba(239,68,68,0.2); }
-        .entry-unknown { background: rgba(255,255,255,0.05); color: var(--muted); border: 1px solid var(--border); }
-
-        .score-row { display: flex; align-items: center; justify-content: space-between; margin-bottom: 12px; }
-        .score-val { font-size: 18px; font-weight: 800; color: #fff; }
-        .score-bar { flex: 1; height: 6px; background: rgba(255,255,255,0.1); border-radius: 3px; margin: 0 15px; overflow: hidden; }
-        .score-fill { height: 100%; border-radius: 3px; background: var(--accent); }
-
-        .metrics-grid {
-            display: grid; grid-template-columns: repeat(3, 1fr); gap: 10px; margin-bottom: 16px;
-        }
-        .metric { background: var(--bg3); border-radius: 8px; padding: 10px; text-align: center; }
-        .metric-lbl { font-size: 10px; color: var(--muted); margin-bottom: 4px; }
-        .metric-val { font-size: 14px; font-weight: 700; }
-
-        .vwap-row {
-            display: flex; align-items: center; justify-content: space-between;
-            background: var(--bg3); border-radius: 8px; padding: 10px 14px;
-            margin-bottom: 12px; font-size: 12px;
-        }
-        .vwap-label { color: var(--muted); }
-        .vwap-above { color: var(--green); font-weight: 700; }
-        .vwap-below { color: var(--red);   font-weight: 700; }
-
-        .signals { display: flex; flex-wrap: wrap; gap: 6px; margin-top: 14px; }
-        .sig-tag {
-            font-size: 11px; padding: 4px 8px; background: rgba(255,255,255,0.05);
-            border-radius: 6px; color: var(--muted); border: 1px solid var(--border);
-        }
-
-        .targets {
-            margin-top: 16px; padding-top: 16px; border-top: 1px solid var(--border);
-            display: flex; justify-content: space-between; font-size: 12px;
-        }
-        .target-box { text-align: center; flex: 1; }
-        .target-box b { display: block; color: var(--accent); margin-top: 2px; }
-        .sl-box b { color: var(--red); }
-
-        .empty { text-align: center; padding: 100px; color: var(--muted); grid-column: 1/-1; }
-    </style>
-</head>
-<body>
-
-<div class="header">
-    <div class="header-inner">
-        <div class="logo">
-            <div class="logo-icon"><p>📈</p></div>
-                <div class="logo-text">
-                <h1>Momentum Master</h1>
-                <p>S&P 500 Daily Technical Tracker</p>
-            </div>
-        </div>
-        <div class="header-controls">
-            <span class="last-update">업데이트: {{ last_update }}</span>
-            {% if is_analyzing %}
-                <span class="btn btn-ghost">⏳ 분석 중...</span>
-            {% else %}
-                <form action="/refresh" method="POST" style="margin:0;">
-                    <button type="submit" class="btn btn-primary">⚡ 분석 실행</button>
-                </form>
-            {% endif %}
-        </div>
-    </div>
-</div>
-
-<div class="main">
-    {% if last_error %}
-    <div class="error-banner">⚠️ 분석 오류: {{ last_error }}</div>
-    {% endif %}
-
-    {% if data %}
-    <div class="stats-row">
-        <div class="stat-card">
-            <div class="val">{{ data|length }}</div>
-            <div class="lbl">분석 종목</div>
-        </div>
-        <div class="stat-card">
-            <div class="val" style="color:var(--green)">{{ green_count }}</div>
-            <div class="lbl">🟢 진입 가능</div>
-        </div>
-        <div class="stat-card">
-            <div class="val" style="color:var(--yellow)">{{ wait_count }}</div>
-            <div class="lbl">⏳ 대기</div>
-        </div>
-        <div class="stat-card">
-            <div class="val" style="color:var(--muted); font-size:14px;">{{ analyzed_at }}</div>
-            <div class="lbl">마지막 분석</div>
-        </div>
-    </div>
-    {% endif %}
-
-    <div class="stock-grid">
-        {% for item in data %}
-        <div class="stock-card">
-            <div class="card-head">
-                <div>
-                    <div class="card-ticker">{{ item['ticker'] }}</div>
-                    <div style="font-size:12px; color:var(--muted)">{{ item['company'] }}</div>
-                </div>
-                <div class="card-price">
-                    <div class="price">${{ "%.2f"|format(item['price']) }}</div>
-                    <div class="change {{ 'pos' if item['change'] > 0 else ('neg' if item['change'] < 0 else 'zero') }}">
-                        {{ "%+.2f"|format(item['change']) }}%
-                    </div>
-                </div>
-            </div>
-
-            <div class="entry-badge entry-{{ item['entry_key'] }}">{{ item['entry'] }}</div>
-
-            <div class="score-row">
-                <div class="score-val">{{ item['score'] }}</div>
-                <div class="score-bar">
-                    <div class="score-fill" style="width: {{ [item['score'], 100]|min }}%"></div>
-                </div>
-                <div style="font-size:12px; color:var(--muted)">/ 100</div>
-            </div>
-
-            <!-- VWAP 행 -->
-            <div class="vwap-row">
-                <span class="vwap-label">VWAP ${{ "%.2f"|format(item['vwap']) }}</span>
-                {% if item['is_above_vwap'] %}
-                    <span class="vwap-above">▲ 상회 +{{ "%.1f"|format(item['vwap_gap_pct']|abs) }}%</span>
-                {% else %}
-                    <span class="vwap-below">▼ 하회 {{ "%.1f"|format(item['vwap_gap_pct']|abs) }}%</span>
-                {% endif %}
-            </div>
-
-            <div class="metrics-grid">
-                <div class="metric">
-                    <div class="metric-lbl">RSI(14)</div>
-                    <div class="metric-val" style="color: {{ 'var(--red)' if item['rsi'] > 70 else ('var(--green)' if item['rsi'] < 30 else 'inherit') }}">
-                        {{ "%.1f"|format(item['rsi']) }}
-                    </div>
-                </div>
-                <div class="metric">
-                    <div class="metric-lbl">MACD Hist</div>
-                    <div class="metric-val">{{ "%.3f"|format(item['macd_histogram']) }}</div>
-                </div>
-                <!-- 🆕 Stochastic 추가 -->
-                <div class="metric">
-                    <div class="metric-lbl">Stoch D</div>
-                    <div class="metric-val" style="color: {{ 'var(--green)' if item['stochastic_d'] < 20 else ('var(--red)' if item['stochastic_d'] > 80 else 'inherit') }}">
-                        {{ "%.1f"|format(item['stochastic_d'] or 0) }}
-                    </div>
-                </div>
-                <div class="metric">
-                    <div class="metric-lbl">MA 20</div>
-                    <div class="metric-val">{{ 'UP 🟢' if item['price'] > item['ma20'] else 'DOWN 🔴' }}</div>
-                </div>
-                <div class="metric">
-                    <div class="metric-lbl">V-Ratio</div>
-                    <div class="metric-val">{{ "%.0f"|format(item['vol_ratio']) }}%</div>
-                </div>
-                <div class="metric">
-                    <div class="metric-lbl">Cloud</div>
-                    <div class="metric-val">
-                        {{ 'ABOVE 🟢' if item['is_above_cloud'] else ('BELOW 🔴' if item['is_below_cloud'] else 'INSIDE 🟡') }}
-                    </div>
-                </div>
-                <!-- MA Trend 텍스트 크기 미세 조정 -->
-                <div class="metric" style="grid-column: span 3;">
-                    <div class="metric-lbl">MA Trend & Momentum</div>
-                    <div class="metric-val" style="font-size:13px">{{ item['ma_trend'] }}</div>
-                </div>
-            </div>
-
-            <div class="signals">
-                {% for sig in item['signals'] %}
-                    <span class="sig-tag">{{ sig }}</span>
-                {% endfor %}
-            </div>
-
-            <div class="targets">
-                <div class="target-box">T1 <b>${{ "%.2f"|format(item['target1']) }}</b></div>
-                <div class="target-box">T2 <b>${{ "%.2f"|format(item['target2']) }}</b></div>
-                <div class="target-box sl-box">SL <b>${{ "%.2f"|format(item['stop_loss']) }}</b></div>
-            </div>
-        </div>
-        {% else %}
-        <div class="empty">
-            <h3>데이터가 없습니다.</h3>
-            <p>분석 실행 버튼을 눌러 결과데이터를 생성해주세요.</p>
-        </div>
-        {% endfor %}
-    </div>
-</div>
-
-<script>
-async function pollStatus() {
-    try {
-        const res = await fetch('/status');
-        const d   = await res.json();
-        if (!d.is_analyzing) location.reload();
-        else setTimeout(pollStatus, 3000);
-    } catch (e) {
-        setTimeout(pollStatus, 5000);
-    }
-}
-{% if is_analyzing %}pollStatus();{% endif %}
-</script>
-</body>
-</html>
-"""
-
-
-# ─────────────────────────────
+# ═══════════════════════════════════════════════════════════════════
 # 라우트
-# ─────────────────────────────
-@app.route('/')
+# ═══════════════════════════════════════════════════════════════════
+
+@app.route("/")
 def index():
-    if not state.processed_results:
-        print("[INIT] 데이터 탐색... 히스토리 로드 시도")
-        if not state.load_latest_history():
-            print("[INIT] 히스토리 없음 → 대기")
-            
-    return render_template_string(HTML_TEMPLATE, **state.get_snapshot())
+    state.ensure_history_loaded()
+    snap = state.get_snapshot()
+    return render_template(
+        "dashboard.html",
+        results=snap["results"],
+        green_count=snap["green_count"],
+        wait_count=snap["wait_count"],
+        stop_count=snap["stop_count"],
+        last_update=snap["last_update"],
+        analyzed_at=snap["analyzed_at"],
+        is_analyzing=snap["is_analyzing"],
+        last_error=snap["last_error"],
+        is_history=False,
+    )
 
 
-@app.route('/status')
+@app.route("/history")
+def history_list():
+    dates = get_available_dates()
+    return render_template("history.html", dates=dates)
+
+
+@app.route("/history/<date_str>")
+def history_detail(date_str):
+    if not _HISTORY_NAME_RE.fullmatch(date_str):
+        abort(400, description="잘못된 날짜 형식입니다.")
+    data = get_history_data(date_str)
+    if not data:
+        return redirect(url_for("history_list"))
+    results = data.get("results", [])
+    if "green" in data and "wait" in data and "stop" in data:
+        counts = {"green": data["green"], "wait": data["wait"], "stop": data["stop"]}
+    else:
+        counts = _count_entries(results)
+    return render_template(
+        "dashboard.html",
+        results=results,
+        green_count=counts["green"],
+        wait_count=counts["wait"],
+        stop_count=counts["stop"],
+        last_update=_format_history_label(date_str),
+        analyzed_at=data.get("analyzed_at", date_str),
+        is_analyzing=False,
+        last_error="",
+        is_history=True,
+    )
+
+
+@app.route("/status")
 def status():
-    return jsonify({
-        "is_analyzing": state.is_analyzing,
-        "last_error": state.last_error
-    })
+    snap = state.get_snapshot()
+    return jsonify(
+        {
+            "is_analyzing": snap["is_analyzing"],
+            "last_error": snap["last_error"],
+            "last_update": snap["last_update"],
+            "green_count": snap["green_count"],
+            "wait_count": snap["wait_count"],
+            "stop_count": snap["stop_count"],
+            "total": len(snap["results"]),
+        }
+    )
 
 
-@app.route('/refresh', methods=['POST'])
+@app.route("/refresh", methods=["POST"])
 def refresh():
+    _validate_csrf()
     if state.start_analyzing():
         t = threading.Thread(target=run_analysis_background, daemon=True)
         t.start()
-    return redirect(url_for('index'))
+        return jsonify({"status": "started"})
+    return jsonify({"status": "already_running"})
 
 
-if __name__ == '__main__':
-    port = int(os.environ.get('PORT', 5000))
-    app.run(host='0.0.0.0', port=port, debug=True)
+# ═══════════════════════════════════════════════════════════════════
+if __name__ == "__main__":
+    port = int(os.getenv("PORT", 5000))
+    app.run(host="0.0.0.0", port=port, debug=False)
