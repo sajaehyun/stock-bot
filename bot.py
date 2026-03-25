@@ -435,10 +435,11 @@ def compute_indicators(ticker: str) -> dict | None:
         return None
 
     try:
-      close  = pd.Series(df["Close"].values,  index=df.index, dtype=float)
-high   = pd.Series(df["High"].values,   index=df.index, dtype=float)
-low    = pd.Series(df["Low"].values,    index=df.index, dtype=float)
-volume = pd.Series(df["Volume"].values, index=df.index, dtype=float)
+        close  = pd.Series(df["Close"].values,  index=df.index, dtype=float)
+        high   = pd.Series(df["High"].values,   index=df.index, dtype=float)
+        low    = pd.Series(df["Low"].values,    index=df.index, dtype=float)
+        volume = pd.Series(df["Volume"].values, index=df.index, dtype=float)
+
 
 
         # 현재가 / 1일 변화율
