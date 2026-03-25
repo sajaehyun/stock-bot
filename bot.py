@@ -2,19 +2,12 @@ import os
 import json
 import time
 import requests
-import yfinance as yf
 import pandas as pd
 import numpy as np
+import yfinance as yf
+from finvizfinance.screener.overview import Overview
 from datetime import datetime
 from dotenv import load_dotenv
-from concurrent.futures import ThreadPoolExecutor, as_completed
-
-try:
-    from finvizfinance.screener.overview import Overview
-    FINVIZ_AVAILABLE = True
-except ImportError:
-    FINVIZ_AVAILABLE = False
-    print("[경고] finvizfinance 미설치 → pip install finvizfinance")
 
 load_dotenv()
 
@@ -23,20 +16,17 @@ load_dotenv()
 # ─────────────────────────────────────────────
 TELEGRAM_TOKEN  = os.getenv("TELEGRAM_TOKEN")
 CHAT_ID         = os.getenv("CHAT_ID")
-MAX_WORKERS     = 5
-MAX_TICKERS     = 30
+AV_API_KEY      = os.getenv("AV_API_KEY", "TV93LGAM5I8HYMLX")
+AV_BASE_URL     = "https://www.alphavantage.co/query"
+
+# 무료 플랜: 분당 5회, 일 25회
+# TOP_GAINERS 1회 + 종목당 1회 → 최대 15종목 (총 16회/일)
+AV_DELAY_SEC    = 13      # 종목 간 딜레이 (분당 5회 안전하게 유지)
+MAX_TICKERS     = 15      # 일 25회 제한 내에서 여유롭게
+
 RAW_SCORE_MAX   =  120
 RAW_SCORE_MIN   =  -50
-RAW_SCORE_RANGE = RAW_SCORE_MAX - RAW_SCORE_MIN  # 170
-
-# ─────────────────────────────────────────────
-# Finviz 실패 시 사용할 S&P 500 대표 폴백 티커
-# ─────────────────────────────────────────────
-FALLBACK_TICKERS = [
-    "AAPL","MSFT","NVDA","AMZN","GOOGL","META","TSLA","AVGO","JPM","LLY",
-    "V","UNH","XOM","MA","JNJ","PG","HD","MRK","ABBV","CVX",
-    "PEP","KO","COST","AMD","WMT","BAC","CRM","MCD","NFLX","ORCL",
-]
+RAW_SCORE_RANGE = RAW_SCORE_MAX - RAW_SCORE_MIN
 
 
 # ─────────────────────────────────────────────
@@ -48,7 +38,7 @@ def safe_float(val, default=0.0):
         if hasattr(val, 'iloc'):
             val = val.iloc[-1]
         if isinstance(val, str):
-            val = val.replace('%', '').replace(',', '').strip()
+            val = val.replace('%', '').replace(',', '').replace('$', '').strip()
         v = float(val)
         return default if (np.isnan(v) or np.isinf(v)) else v
     except Exception:
@@ -75,130 +65,196 @@ def send_telegram(message: str):
         print(f"[Telegram] 전송 실패: {e}")
 
 
-# ─────────────────────────────────────────────
-# 1-A. Finviz S&P 500 상승 종목 수집
-# ─────────────────────────────────────────────
-def fetch_finviz_sp500_gainers() -> list[dict]:
-    if not FINVIZ_AVAILABLE:
-        print("[Finviz] 라이브러리 없음 → 폴백 사용")
-        return []
-
-    print("[Finviz] S&P 500 상승 종목 수집 중...")
-    try:
-        foverview  = Overview()
-        filter_cfg = {'Index': 'S&P 500'}
-
-        # 버전별 set_filter 호환 처리
+def av_request(params: dict, retry: int = 3) -> dict | None:
+    """Alpha Vantage API 공통 요청 (rate limit 자동 재시도)"""
+    params["apikey"] = AV_API_KEY
+    for attempt in range(retry):
         try:
-            foverview.set_filter(filters_dict=filter_cfg)
-        except TypeError:
-            try:
-                foverview.set_filter(filter_dict=filter_cfg)
-            except Exception:
-                print("[Finviz] 필터 적용 실패 → 전체 데이터 사용")
+            res = requests.get(AV_BASE_URL, params=params, timeout=30)
+            data = res.json()
 
-        df = foverview.screener_view()
-        if df is None or df.empty:
-            print("[Finviz] 빈 데이터 반환")
-            return []
-
-        # 컬럼명 정규화
-        df.columns = [str(c).strip() for c in df.columns]
-        print(f"[Finviz] 컬럼 목록: {list(df.columns)}")
-
-        # Change 컬럼 동적 탐색 (버전마다 이름이 다름)
-        change_col = next(
-            (c for c in df.columns if 'change' in c.lower() or 'chg' in c.lower()),
-            None
-        )
-        ticker_col  = next((c for c in df.columns if c.lower() == 'ticker'), 'Ticker')
-        company_col = next((c for c in df.columns if c.lower() == 'company'), 'Company')
-        price_col   = next((c for c in df.columns if c.lower() == 'price'), 'Price')
-
-        # 상위 상승 종목 소팅 (Order 필터 미지원 대응)
-        if change_col and not df.empty:
-            df['sort_val'] = df[change_col].apply(lambda x: safe_float(x))
-            df = df.sort_values(by='sort_val', ascending=False)
-
-        results = []
-        for _, row in df.head(MAX_TICKERS).iterrows():
-            try:
-                ticker  = str(row.get(ticker_col,  '')).strip()
-                company = str(row.get(company_col, '')).strip()
-                price   = safe_float(row.get(price_col, 0))
-                change  = safe_float(row[change_col]) if change_col else 0.0
-
-                if ticker and price > 0:
-                    results.append({
-                        "ticker":  ticker,
-                        "company": company,
-                        "price":   price,
-                        "change":  change,
-                    })
-            except Exception as e:
-                print(f"[Finviz] 행 파싱 오류: {e}")
+            # API 제한 감지
+            if "Note" in data or "Information" in data:
+                msg = data.get("Note") or data.get("Information", "")
+                print(f"[Alpha Vantage 제한] {msg[:100]}")
+                print(f"[대기] 60초 후 재시도...")
+                time.sleep(60)
                 continue
 
-        print(f"[Finviz] {len(results)}개 종목 수집 완료")
-        return results
+            return data
 
+        except Exception as e:
+            print(f"[Alpha Vantage 요청 오류] {e} ({attempt+1}/{retry})")
+            time.sleep(5 * (attempt + 1))
+
+    return None
+
+
+# ─────────────────────────────────────────────
+# Fallback 데이터 수집 (Finviz / yfinance)
+# ─────────────────────────────────────────────
+def fetch_top_gainers_finviz() -> list[dict]:
+    """Finviz 스크리너를 이용한 당일 상승 종목 수집 (Alpha Vantage 백업)"""
+    print("[Finviz] 당일 상승 종목 수집 중 (Fallback)...")
+    try:
+        f_overview = Overview()
+        f_overview.set_filter(filters_dict={'Signal': 'Top Gainers'})
+        df = f_overview.screener_view()
+        
+        if df.empty:
+            return []
+            
+        results = []
+        for _, row in df.head(MAX_TICKERS).iterrows():
+            ticker = str(row['Ticker']).strip()
+            price  = safe_float(row['Price'])
+            change = safe_float(row['Change'])
+            volume = safe_float(row['Volume'])
+            
+            # 워런트/ETF 등 제외
+            if not ticker or len(ticker) > 5 or any(c in ticker for c in ['.', '-', '+']):
+                continue
+            if price < 5:
+                continue
+                
+            results.append({
+                "ticker":  ticker,
+                "company": ticker,
+                "price":   price,
+                "change":  change,
+                "volume":  volume,
+            })
+        return results
     except Exception as e:
-        print(f"[Finviz] 수집 오류: {e}")
+        print(f"[Finviz] 수집 실패: {e}")
         return []
 
 
-# ─────────────────────────────────────────────
-# 1-B. 폴백: 하드코딩 S&P 500 대표 종목
-# ─────────────────────────────────────────────
-def fetch_fallback_tickers() -> list[dict]:
-    print(f"[Fallback] 기본 티커 {len(FALLBACK_TICKERS)}개로 분석 진행")
-    return [
-        {"ticker": t, "company": t, "price": 0.0, "change": 0.0}
-        for t in FALLBACK_TICKERS[:MAX_TICKERS]
-    ]
+def fetch_daily_data_yf(ticker: str) -> pd.DataFrame | None:
+    """yfinance를 이용한 일별 데이터 수집 (Alpha Vantage 백업)"""
+    print(f"[{ticker}] yfinance 데이터 수집 중 (Fallback)...")
+    try:
+        # 최근 6개월 데이터
+        df = yf.download(ticker, period="6mo", interval="1d", progress=False)
+        if df.empty:
+            return None
+            
+        # MultiIndex 컬럼 처리 (yfinance 최신버전 호환)
+        if isinstance(df.columns, pd.MultiIndex):
+            df.columns = df.columns.get_level_values(0)
+            
+        df = df.rename(columns={
+            "Open":   "Open",
+            "High":   "High",
+            "Low":    "Low",
+            "Close":  "Close",
+            "Volume": "Volume",
+        })
+        
+        for col in ["Open", "High", "Low", "Close", "Volume"]:
+            df[col] = pd.to_numeric(df[col], errors="coerce")
+        df = df.dropna(subset=["Close"])
+        
+        if len(df) < 50:
+            return None
+            
+        return df
+    except Exception as e:
+        print(f"[{ticker}] yfinance 수집 실패: {e}")
+        return None
 
 
 # ─────────────────────────────────────────────
-# 2. 기술적 지표 계산
+# 1. 당일 상승 종목 수집
+# ─────────────────────────────────────────────
+def fetch_top_gainers() -> list[dict]:
+    """Alpha Vantage 또는 Finviz에서 상승 종목 수집"""
+    print("[API] 당일 상승 종목 수집 시작...")
+    
+    # 1. Alpha Vantage 시도
+    results = []
+    data = av_request({"function": "TOP_GAINERS_LOSERS"})
+    if data:
+        gainers = data.get("top_gainers", [])
+        for item in gainers[:MAX_TICKERS]:
+            ticker = str(item.get("ticker", "")).strip()
+            price  = safe_float(item.get("price", 0))
+            change = safe_float(item.get("change_percentage", "0"))
+            volume = safe_float(item.get("volume", 0))
+            
+            if not ticker or len(ticker) > 5 or any(c in ticker for c in ['.', '-', '+']):
+                continue
+            if price < 5:
+                continue
+                
+            results.append({
+                "ticker":  ticker,
+                "company": ticker,
+                "price":   price,
+                "change":  change,
+                "volume":  volume,
+            })
+            
+    # 2. 실패 시 Finviz 시도
+    if not results:
+        results = fetch_top_gainers_finviz()
+        
+    print(f"[API] 최종 {len(results)}개 종목 수집 완료")
+    return results
+
+
+# ─────────────────────────────────────────────
+# 2. 일별 OHLCV 데이터 수집
+# ─────────────────────────────────────────────
+def fetch_daily_data(ticker: str) -> pd.DataFrame | None:
+    """Alpha Vantage 또는 yfinance에서 일별 데이터 수집"""
+    # 1. Alpha Vantage 시도
+    data = av_request({
+        "function":   "TIME_SERIES_DAILY",
+        "symbol":     ticker,
+        "outputsize": "full",
+    })
+
+    if data and "Time Series (Daily)" in data:
+        ts = data.get("Time Series (Daily)")
+        df = pd.DataFrame.from_dict(ts, orient="index")
+        df.index = pd.to_datetime(df.index)
+        df = df.sort_index()
+        df = df.rename(columns={
+            "1. open":   "Open",
+            "2. high":   "High",
+            "3. low":    "Low",
+            "4. close":  "Close",
+            "5. volume": "Volume",
+        })
+        for col in ["Open", "High", "Low", "Close", "Volume"]:
+            df[col] = pd.to_numeric(df[col], errors="coerce")
+        df = df.dropna(subset=["Close"])
+        if len(df) >= 50:
+            print(f"[{ticker}] Alpha Vantage 수신 완료 ({len(df)}행)")
+            return df
+
+    # 2. 실패 시 yfinance 시도
+    return fetch_daily_data_yf(ticker)
+
+
+# ─────────────────────────────────────────────
+# 3. 기술적 지표 계산
 # ─────────────────────────────────────────────
 def compute_indicators(ticker: str) -> dict | None:
-    df = None
-
-    for attempt in range(3):
-        try:
-            raw = yf.download(
-                ticker, period="2y", interval="1d",
-                progress=False, auto_adjust=True
-            )
-            if raw is not None and len(raw) >= 200:
-                df = raw
-                break
-            print(f"[{ticker}] 데이터 부족 ({len(raw) if raw is not None else 0}행) 재시도 {attempt+1}/3")
-        except Exception as e:
-            print(f"[{ticker}] 다운로드 실패 ({attempt+1}/3): {e}")
-        time.sleep(2 * (attempt + 1))
-
-    if df is None or len(df) < 200:
-        print(f"[{ticker}] 최종 데이터 부족 → 스킵")
+    df = fetch_daily_data(ticker)
+    if df is None:
         return None
 
     try:
-        # MultiIndex 제거
-        if isinstance(df.columns, pd.MultiIndex):
-            df.columns = df.columns.get_level_values(0)
+        close  = df["Close"]
+        high   = df["High"]
+        low    = df["Low"]
+        volume = df["Volume"]
 
-        def to_series(col):
-            s = df[col].squeeze()
-            return s.iloc[:, 0] if isinstance(s, pd.DataFrame) else s
-
-        close  = to_series("Close")
-        high   = to_series("High")
-        low    = to_series("Low")
-        volume = to_series("Volume")
-
-        # 현재가 / 일일 변동률
+        n = len(df)
         curr_price = safe_float(close.iloc[-1])
-        prev_price = safe_float(close.iloc[-2]) if len(close) > 1 else curr_price
+        prev_price = safe_float(close.iloc[-2]) if n > 1 else curr_price
         change_1d  = ((curr_price - prev_price) / prev_price * 100) if prev_price != 0 else 0.0
 
         # RSI (14)
@@ -208,7 +264,7 @@ def compute_indicators(ticker: str) -> dict | None:
         rs    = gain / loss.replace(0, np.nan)
         rsi   = safe_float((100 - (100 / (1 + rs))).iloc[-1])
 
-        # MACD (12, 26, 9)
+        # MACD
         ema12     = close.ewm(span=12, adjust=False).mean()
         ema26     = close.ewm(span=26, adjust=False).mean()
         macd_line = ema12 - ema26
@@ -216,13 +272,13 @@ def compute_indicators(ticker: str) -> dict | None:
         curr_macd = safe_float((macd_line - signal).iloc[-1])
 
         # MA 20 / 50 / 200
-        m20_val  = safe_float(close.rolling(20).mean().iloc[-1])
-        m50_val  = safe_float(close.rolling(50).mean().iloc[-1])
-        m200_val = safe_float(close.rolling(200).mean().iloc[-1])
+        m20_val  = safe_float(close.rolling(min(20,  n)).mean().iloc[-1])
+        m50_val  = safe_float(close.rolling(min(50,  n)).mean().iloc[-1])
+        m200_val = safe_float(close.rolling(min(200, n)).mean().iloc[-1])
 
-        if m50_val > m200_val and m200_val > 0:
-            ma_trend = "골든크로스"
-        elif m50_val < m200_val and m200_val > 0:
+        if n >= 50 and m50_val > m200_val and m200_val > 0:
+            ma_trend = "골튼크로스"
+        elif n >= 50 and m50_val < m200_val and m200_val > 0:
             ma_trend = "데드크로스"
         else:
             ma_trend = "중립"
@@ -244,9 +300,9 @@ def compute_indicators(ticker: str) -> dict | None:
         is_below_cloud = curr_price < min(sa, sb) if (sa > 0 and sb > 0) else False
 
         # VWAP (20일 Rolling)
-        typical_price = (high + low + close) / 3
+        typical = (high + low + close) / 3
         vwap_20 = (
-            (typical_price * volume).rolling(20).sum()
+            (typical * volume).rolling(20).sum()
             / volume.rolling(20).sum()
         )
         curr_vwap     = safe_float(vwap_20.iloc[-1])
@@ -287,19 +343,18 @@ def compute_indicators(ticker: str) -> dict | None:
         }
 
     except Exception as e:
-        import traceback
         print(f"[{ticker}] 지표 계산 오류: {e}")
-        traceback.print_exc()
         return None
 
 
 # ─────────────────────────────────────────────
-# 3. 점수 및 진입 상태 계산
+# 4. 점수 및 진입 상태 계산
 # ─────────────────────────────────────────────
 def compute_score_and_status(ind: dict, fv: dict) -> tuple[int, list[str], str]:
     raw     = 0
     signals = []
 
+    # 지표 기반 점수 합산
     if ind["rsi"] < 35:
         raw += 20; signals.append(f"RSI 과매도 {ind['rsi']:.1f}")
     elif ind["rsi"] <= 65:
@@ -337,95 +392,62 @@ def compute_score_and_status(ind: dict, fv: dict) -> tuple[int, list[str], str]:
         raw += 15; signals.append(f"거래량 급증 {ind['vol_ratio']:.0f}%")
 
     if fv.get("change", 0) > 3:
-        raw += 10; signals.append(f"강한 모멘텀 +{fv['change']:.1f}%")
+        raw += 10; signals.append(f"당일 강한 상승 +{fv['change']:.1f}% ✅")
 
     score = normalize_score(raw)
-    entry = "🟢 진입 가능" if score >= 70 else ("⏳ 대기 (관망)" if score >= 50 else "❌ 회피 (리스크)")
+    
+    if score >= 70:
+        entry = "🟢 진입 가능"
+    elif score >= 50:
+        entry = "⏳ 대기 (관망)"
+    else:
+        entry = "❌ 회피 (위험)"
+        
     return score, signals, entry
 
 
-# ─────────────────────────────────────────────
-# 4. 단일 종목 분석
-# ─────────────────────────────────────────────
-def analyze_ticker(fv: dict, delay: float = 0.0) -> dict | None:
+def analyze_ticker(fv: dict, delay: int = 0) -> dict | None:
+    ticker = fv["ticker"]
     if delay > 0:
         time.sleep(delay)
-
-    ticker = fv["ticker"]
-    print(f"[분석 중] {ticker}")
+    
     ind = compute_indicators(ticker)
-    if ind is None:
+    if not ind:
         return None
-
+        
     score, signals, entry = compute_score_and_status(ind, fv)
-
-    return {
-        "ticker":         ticker,
-        "company":        fv["company"] if fv["company"] and fv["company"] != ticker else ticker,
-        "price":          ind["price"],
-        "change":         ind["change_1d"],
-        "rsi":            ind["rsi"],
-        "macd_histogram": ind["macd_histogram"],
-        "ma20":           ind["ma20"],
-        "ma_trend":       ind["ma_trend"],
-        "stochastic_d":   ind["stochastic_d"],
-        "is_above_cloud": ind["is_above_cloud"],
-        "is_below_cloud": ind["is_below_cloud"],
-        "vwap":           ind["vwap"],
-        "is_above_vwap":  ind["is_above_vwap"],
-        "vwap_gap_pct":   ind["vwap_gap_pct"],
-        "vol_ratio":      ind["vol_ratio"],
-        "target1":        ind["target1"],
-        "target2":        ind["target2"],
-        "stop_loss":      ind["stop_loss"],
-        "score":          score,
-        "signals":        signals,
-        "entry":          entry,
-        "analyzed_at":    datetime.now().strftime('%Y-%m-%d %H:%M:%S'),
-    }
+    
+    return {**fv, **ind, "score": score, "signals": signals, "entry": entry}
 
 
-# ─────────────────────────────────────────────
-# 5. 메인 분석 루프
-# ─────────────────────────────────────────────
-def analyze() -> dict:
+def analyze():
+    """메인 분석 실행 함수"""
     print(f"\n{'='*50}")
-    print(f"[{datetime.now().strftime('%Y-%m-%d %H:%M:%S')}] S&P 500 모멘텀 분석 시작")
+    print(f"🚀 주식 분석 봇 가동 ({datetime.now().strftime('%H:%M:%S')})")
     print(f"{'='*50}")
 
-    # Finviz 시도 → 실패 시 폴백 티커 사용
-    candidates = fetch_finviz_sp500_gainers()
+    # Step 1: 종목 수집
+    candidates = fetch_top_gainers()
     if not candidates:
-        print("[경고] Finviz 수집 실패 → 기본 티커 폴백으로 전환")
-        candidates = fetch_fallback_tickers()
-
-    if not candidates:
-        print("[오류] 후보 티커 없음 → 분석 중단")
+        print("[경고] 수집된 종목이 없습니다.")
         return {"results": []}
 
-    print(f"[분석 대상] 총 {len(candidates)}개 종목")
+    # Step 2: 각 종목 분석
     results = []
-
-    with ThreadPoolExecutor(max_workers=MAX_WORKERS) as executor:
-        futures = {
-            executor.submit(analyze_ticker, fv, i * 0.5): fv
-            for i, fv in enumerate(candidates)
-        }
-        for future in as_completed(futures):
-            try:
-                res = future.result()
-                if res:
-                    results.append(res)
-                    print(f"  [*] {res['ticker']} 완료 (score={res['score']})")
-            except Exception as e:
-                import traceback
-                print(f"[분석 오류] {e}")
-                traceback.print_exc()
+    for i, fv in enumerate(candidates):
+        # Alpha Vantage 사용 시 딜레이, yfinance 사용 시 딜레이 불필요하지만 안전을 위해 유지
+        res = analyze_ticker(fv, delay=AV_DELAY_SEC if i > 0 else 0)
+        if res:
+            results.append(res)
+            print(f"  [OK] {res['ticker']:6s} | 점수: {res['score']:2d} | 상태: {res['entry']}")
+        else:
+            print(f"  [SKIP] {fv['ticker']} 데이터 수집 실패")
 
     if not results:
-        print("[오류] 분석된 종목 없음 — yfinance 네트워크 연결을 확인하세요")
+        print("[오류] 분석된 종목이 없습니다.")
         return {"results": []}
 
+    # 점수 기준 정렬
     results.sort(key=lambda x: x["score"], reverse=True)
 
     save_data = {
@@ -433,7 +455,7 @@ def analyze() -> dict:
         "results":     results,
     }
 
-    # 히스토리 저장
+    # 데이터 저장
     try:
         os.makedirs("history", exist_ok=True)
         filename = datetime.now().strftime('%Y-%m-%d_%H%M%S')
@@ -444,17 +466,17 @@ def analyze() -> dict:
     except Exception as e:
         print(f"[History] 저장 오류: {e}")
 
-    # 텔레그램 리포트
-    top10     = results[:10]
+    # 텔레그램 전송
+    top10 = results[:10]
     today_str = datetime.now().strftime('%Y-%m-%d')
-    report    = f"📊 *{today_str} S&P 500 모멘텀 Top 10*\n\n"
+    report = f"📊 *{today_str} 당일 상승 종목 Top 분석*\n\n"
     for i, r in enumerate(top10, 1):
-        vwap_str = f"VWAP {'상회' if r['is_above_vwap'] else '하회'} {r['vwap_gap_pct']:+.1f}%"
+        vwap_status = "상회" if r['is_above_vwap'] else "하회"
         report += (
-            f"{i}. *{r['ticker']}* ({r['company']})\n"
+            f"{i}. *{r['ticker']}*\n"
             f"   상태: {r['entry']} | 점수: {r['score']}\n"
             f"   가격: ${r['price']:.2f} ({r['change']:+.2f}%)\n"
-            f"   RSI: {r['rsi']:.1f} | {vwap_str}\n\n"
+            f"   RSI: {r['rsi']:.1f} | VWAP {vwap_status} ({r['vwap_gap_pct']:+.1f}%)\n\n"
         )
     send_telegram(report)
 
