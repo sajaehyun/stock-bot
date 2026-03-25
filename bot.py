@@ -224,40 +224,50 @@ def _yfinance_candles(ticker: str) -> pd.DataFrame | None:
         kw = {"period": "2y", "interval": "1d", "auto_adjust": True, "progress": False}
         if _YF_SUPPORTS_MLI:
             kw["multi_level_index"] = False
-        df = yf.download(ticker, **kw)
-        if df is None or df.empty:
+        raw = yf.download(ticker, **kw)
+        if raw is None or raw.empty:
             return None
 
-        # MultiIndex 완전 제거 (단일 종목도 MultiIndex로 올 수 있음)
-        if isinstance(df.columns, pd.MultiIndex):
-            df.columns = df.columns.get_level_values(0)
+        # ✅ MultiIndex 완전 제거 — 새 DataFrame으로 재구성
+        if isinstance(raw.columns, pd.MultiIndex):
+            # 첫 번째 레벨(필드명)만 추출해서 새 dict로 재구성
+            data = {}
+            for col in raw.columns:
+                field = col[0]   # "Close", "High" 등
+                if field not in data:
+                    data[field] = raw[col].values
+            df = pd.DataFrame(data, index=raw.index)
+        else:
+            df = raw.copy()
 
         # 컬럼명 정규화
-        col_map = {}
+        rename = {}
         for c in df.columns:
             cl = str(c).lower().strip()
             if "close" in cl and "adj" not in cl:
-                col_map[c] = "Close"
+                rename[c] = "Close"
             elif "adj" in cl and "close" in cl:
-                col_map[c] = "Adj Close"
+                rename[c] = "Adj Close"
             elif "open" in cl:
-                col_map[c] = "Open"
+                rename[c] = "Open"
             elif "high" in cl:
-                col_map[c] = "High"
+                rename[c] = "High"
             elif "low" in cl:
-                col_map[c] = "Low"
+                rename[c] = "Low"
             elif "vol" in cl:
-                col_map[c] = "Volume"
-        df = df.rename(columns=col_map)
+                rename[c] = "Volume"
+        df = df.rename(columns=rename)
 
         if "Close" not in df.columns and "Adj Close" in df.columns:
             df["Close"] = df["Adj Close"]
         if "Close" not in df.columns:
             return None
+
         return df if len(df) >= 40 else None
     except Exception as e:
         log.warning("yfinance 다운로드 오류 [%s]: %s", ticker, e)
         return None
+
 
 def fetch_ohlcv(ticker: str) -> pd.DataFrame | None:
     """Finnhub 우선, 실패 시 yfinance fallback."""
