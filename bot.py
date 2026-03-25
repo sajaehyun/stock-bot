@@ -228,6 +228,10 @@ def _yfinance_candles(ticker: str) -> pd.DataFrame | None:
         if df is None or df.empty:
             return None
 
+        # MultiIndex 완전 제거 (단일 종목도 MultiIndex로 올 수 있음)
+        if isinstance(df.columns, pd.MultiIndex):
+            df.columns = df.columns.get_level_values(0)
+
         # 컬럼명 정규화
         col_map = {}
         for c in df.columns:
@@ -254,7 +258,6 @@ def _yfinance_candles(ticker: str) -> pd.DataFrame | None:
     except Exception as e:
         log.warning("yfinance 다운로드 오류 [%s]: %s", ticker, e)
         return None
-
 
 def fetch_ohlcv(ticker: str) -> pd.DataFrame | None:
     """Finnhub 우선, 실패 시 yfinance fallback."""
