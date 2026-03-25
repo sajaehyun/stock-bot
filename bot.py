@@ -748,14 +748,23 @@ def analyze() -> dict:
     analyzed_at = datetime.now(KST).strftime("%Y-%m-%d %H:%M:%S (KST)")
     log.info("═══ 분석 시작: %s ═══", analyzed_at)
 
-    # 3중 폴백 수집
+    # 3중 폴백 수집 (부족하면 yfinance batch로 보충)
     candidates = fetch_finviz_sp500_gainers()
-    if not candidates:
-        log.info("Finviz 실패 → yfinance 개별 폴백")
-        candidates = _fetch_yfinance_batch_fallback()
+
+    if len(candidates) < MAX_TICKERS:
+        log.info("Finviz %d개 → yfinance batch로 보충", len(candidates))
+        extra = _fetch_yfinance_batch_fallback()
+        existing = {c["ticker"] for c in candidates}
+        for e in extra:
+            if e["ticker"] not in existing:
+                candidates.append(e)
+                existing.add(e["ticker"])
+        candidates = candidates[:MAX_TICKERS]
+
     if not candidates:
         log.info("yfinance 실패 → Finnhub 폴백")
         candidates = _fetch_finnhub_sp500_fallback()
+
     if not candidates:
         log.error("모든 데이터 소스 실패")
         return {
@@ -764,6 +773,7 @@ def analyze() -> dict:
             "green": 0, "wait": 0, "stop": 0,
             "error": "데이터 소스 없음 — 네트워크 또는 API 키를 확인하세요.",
         }
+
 
     log.info("후보 종목: %d개", len(candidates))
 
