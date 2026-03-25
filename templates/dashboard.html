@@ -1,0 +1,318 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>S&P 500 모멘텀 대시보드</title>
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
+    <style>
+        * { margin:0; padding:0; box-sizing:border-box; }
+        body {
+            font-family:'Inter',-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,sans-serif;
+            background:linear-gradient(135deg,#0f0c29,#302b63,#24243e);
+            color:#e0e0e0; min-height:100vh; padding:20px;
+        }
+        .container { max-width:1400px; margin:0 auto; }
+        .header {
+            display:flex; justify-content:space-between; align-items:center;
+            flex-wrap:wrap; gap:12px; margin-bottom:24px;
+        }
+        .header h1 { font-size:1.6rem; font-weight:700; }
+        .header-actions { display:flex; gap:10px; align-items:center; }
+        .btn {
+            padding:8px 18px; border-radius:8px; border:none;
+            font-family:inherit; font-size:0.85rem; font-weight:600;
+            cursor:pointer; transition:all .2s;
+        }
+        .btn:disabled { opacity:0.5; cursor:not-allowed; }
+        .btn-primary { background:#6366f1; color:#fff; }
+        .btn-primary:hover:not(:disabled) { background:#818cf8; }
+        .btn-secondary { background:rgba(255,255,255,0.1); color:#c7d2fe; }
+        .btn-secondary:hover { background:rgba(255,255,255,0.2); }
+        .badge-analyzing {
+            background:#f59e0b; color:#000; padding:4px 12px;
+            border-radius:20px; font-size:0.75rem; font-weight:600;
+            animation:pulse 1.5s infinite;
+        }
+        @keyframes pulse { 0%,100%{opacity:1;} 50%{opacity:0.5;} }
+        .badge-history {
+            background:#8b5cf6; color:#fff; padding:4px 12px;
+            border-radius:20px; font-size:0.75rem; font-weight:600;
+        }
+        .error-banner {
+            background:#ef4444; color:#fff; padding:10px 16px;
+            border-radius:8px; margin-bottom:16px; font-size:0.85rem;
+            display:flex; justify-content:space-between; align-items:center;
+        }
+        .error-banner .close-btn {
+            background:none; border:none; color:#fff; font-size:1.2rem;
+            cursor:pointer; padding:0 4px;
+        }
+        .stats-row {
+            display:grid; grid-template-columns:repeat(auto-fit,minmax(150px,1fr));
+            gap:12px; margin-bottom:24px;
+        }
+        .stat-card {
+            background:rgba(255,255,255,0.06); border:1px solid rgba(255,255,255,0.1);
+            border-radius:12px; padding:16px; text-align:center;
+        }
+        .stat-card .label { font-size:0.75rem; color:#a5b4fc; margin-bottom:6px; }
+        .stat-card .value { font-size:1.5rem; font-weight:700; }
+        .stat-green { color:#34d399; }
+        .stat-yellow { color:#fbbf24; }
+        .stat-red { color:#f87171; }
+        .stat-blue { color:#60a5fa; }
+        .card-grid {
+            display:grid; grid-template-columns:repeat(auto-fill,minmax(380px,1fr));
+            gap:16px;
+        }
+        .card {
+            background:rgba(255,255,255,0.05); border:1px solid rgba(255,255,255,0.08);
+            border-radius:14px; padding:20px; transition:transform .2s, box-shadow .2s;
+        }
+        .card:hover { transform:translateY(-2px); box-shadow:0 8px 30px rgba(99,102,241,0.15); }
+        .card-header {
+            display:flex; justify-content:space-between; align-items:center;
+            margin-bottom:14px;
+        }
+        .card-header .ticker { font-size:1.2rem; font-weight:700; }
+        .card-header .company { font-size:0.75rem; color:#94a3b8; margin-left:8px; }
+        .card-header .entry { font-size:1.4rem; }
+        .score-section { margin-bottom:14px; }
+        .score-label { display:flex; justify-content:space-between; font-size:0.8rem; margin-bottom:4px; }
+        .score-bar-bg {
+            height:8px; background:rgba(255,255,255,0.1); border-radius:4px; overflow:hidden;
+        }
+        .score-bar-fill { height:100%; border-radius:4px; transition:width .5s ease; }
+        .score-high { background:linear-gradient(90deg,#34d399,#6ee7b7); }
+        .score-mid  { background:linear-gradient(90deg,#fbbf24,#fcd34d); }
+        .score-low  { background:linear-gradient(90deg,#f87171,#fca5a5); }
+        .metric-grid {
+            display:grid; grid-template-columns:1fr 1fr; gap:6px 16px;
+            font-size:0.8rem; margin-bottom:12px;
+        }
+        .metric-grid .key { color:#94a3b8; }
+        .metric-grid .val { text-align:right; font-weight:500; }
+        .metric-grid .val.positive { color:#34d399; }
+        .metric-grid .val.negative { color:#f87171; }
+        .target-row {
+            display:flex; gap:8px; flex-wrap:wrap; font-size:0.75rem; margin-bottom:10px;
+        }
+        .target-tag {
+            padding:3px 8px; border-radius:6px;
+            background:rgba(99,102,241,0.2); color:#a5b4fc;
+        }
+        .stop-tag {
+            padding:3px 8px; border-radius:6px;
+            background:rgba(239,68,68,0.2); color:#fca5a5;
+        }
+        .signals { display:flex; flex-wrap:wrap; gap:4px; }
+        .signal-tag {
+            font-size:0.7rem; padding:2px 8px; border-radius:10px;
+            background:rgba(255,255,255,0.08);
+        }
+        .meta { font-size:0.75rem; color:#64748b; text-align:center; margin-top:24px; }
+        .empty-state { text-align:center; padding:60px 20px; color:#94a3b8; }
+        .empty-state h2 { margin-bottom:12px; }
+    </style>
+</head>
+<body>
+<div class="container">
+    <div class="header">
+        <div><h1>📊 S&P 500 모멘텀 대시보드</h1></div>
+        <div class="header-actions">
+            {% if is_history %}
+                <span class="badge-history">📁 히스토리</span>
+                <a href="/" class="btn btn-secondary">← 대시보드</a>
+            {% else %}
+                {% if is_analyzing %}
+                    <span class="badge-analyzing">⏳ 분석 중...</span>
+                {% else %}
+                    <button id="refreshBtn" class="btn btn-primary" onclick="startRefresh()">🔄 새로 분석</button>
+                {% endif %}
+                <a href="/history" class="btn btn-secondary">📁 히스토리</a>
+            {% endif %}
+        </div>
+    </div>
+
+    {% if last_error %}
+    <div class="error-banner" id="errorBanner">
+        <span>⚠️ {{ last_error }}</span>
+        <button class="close-btn" onclick="document.getElementById('errorBanner').style.display='none'">&times;</button>
+    </div>
+    {% endif %}
+
+    <div class="stats-row">
+        <div class="stat-card">
+            <div class="label">분석 시각</div>
+            <div class="value stat-blue" style="font-size:0.95rem;">{{ analyzed_at }}</div>
+        </div>
+        <div class="stat-card">
+            <div class="label">전체 종목</div>
+            <div class="value stat-blue">{{ results|length }}</div>
+        </div>
+        <div class="stat-card">
+            <div class="label">🟢 매수</div>
+            <div class="value stat-green">{{ green_count }}</div>
+        </div>
+        <div class="stat-card">
+            <div class="label">⏳ 대기</div>
+            <div class="value stat-yellow">{{ wait_count }}</div>
+        </div>
+        <div class="stat-card">
+            <div class="label">❌ 관망</div>
+            <div class="value stat-red">{{ stop_count }}</div>
+        </div>
+    </div>
+
+    {% if results %}
+    <div class="card-grid">
+        {% for r in results %}
+        <div class="card">
+            <div class="card-header">
+                <div>
+                    <span class="ticker">{{ r.ticker }}</span>
+                    <span class="company">{{ r.company }}</span>
+                </div>
+                <span class="entry">{{ r.entry }}</span>
+            </div>
+            <div class="score-section">
+                <div class="score-label">
+                    <span>점수</span>
+                    <span>{{ r.score }}/100 (raw: {{ r.raw_score|default(0) }})</span>
+                </div>
+                <div class="score-bar-bg">
+                    {% if r.score >= 70 %}
+                    <div class="score-bar-fill score-high" style="width:{{ r.score }}%"></div>
+                    {% elif r.score >= 50 %}
+                    <div class="score-bar-fill score-mid" style="width:{{ r.score }}%"></div>
+                    {% else %}
+                    <div class="score-bar-fill score-low" style="width:{{ r.score }}%"></div>
+                    {% endif %}
+                </div>
+            </div>
+            <div class="metric-grid">
+                <span class="key">가격</span>
+                <span class="val">${{ r.price }}</span>
+                <span class="key">변동(1D)</span>
+                <span class="val {% if r.change_1d|default(0) > 0 %}positive{% elif r.change_1d|default(0) < 0 %}negative{% endif %}">
+                    {{ '%+.2f'|format(r.change_1d|default(0)) }}%
+                </span>
+                <span class="key">RSI</span>
+                <span class="val {% if r.rsi|default(50) < 30 %}positive{% elif r.rsi|default(50) > 70 %}negative{% endif %}">
+                    {{ r.rsi|default(50) }}
+                </span>
+                <span class="key">MACD</span>
+                <span class="val {% if r.macd|default(0) > 0 %}positive{% else %}negative{% endif %}">
+                    {{ r.macd|default(0) }}
+                </span>
+                <span class="key">MA20 / 50 / 200</span>
+                <span class="val">{{ r.ma20|default(0) }} / {{ r.ma50|default(0) }} / {{ r.ma200|default(0) }}</span>
+                <span class="key">Stoch %K / %D</span>
+                <span class="val">{{ r.stoch_k|default(50) }} / {{ r.stoch_d|default(50) }}</span>
+                <span class="key">구름</span>
+                <span class="val">{{ r.cloud_status|default("N/A") }}</span>
+                <span class="key">20D VWAP</span>
+                <span class="val {% if r.price|default(0) > r.vwap|default(0) %}positive{% else %}negative{% endif %}">
+                    ${{ r.vwap|default(0) }}
+                </span>
+                <span class="key">거래량 비율</span>
+                <span class="val {% if r.volume_ratio|default(1.0) >= 1.5 %}positive{% endif %}">
+                    {{ r.volume_ratio|default(1.0) }}x
+                </span>
+            </div>
+            <div class="target-row">
+                <span class="target-tag">🎯1: ${{ r.target_1|default(0) }}</span>
+                <span class="target-tag">🎯2: ${{ r.target_2|default(0) }}</span>
+                <span class="stop-tag">🛑 ${{ r.stop_loss|default(0) }}</span>
+                <span class="target-tag">ATR: {{ r.atr|default(0) }}</span>
+            </div>
+            <div class="signals">
+                {% for sig in r.signals|default([]) %}
+                <span class="signal-tag">{{ sig }}</span>
+                {% endfor %}
+            </div>
+        </div>
+        {% endfor %}
+    </div>
+    {% else %}
+    <div class="empty-state">
+        <h2>📭 분석 결과 없음</h2>
+        <p>「새로 분석」 버튼을 눌러 시작하세요.</p>
+    </div>
+    {% endif %}
+
+    <div class="meta">
+        마지막 업데이트: {{ last_update }} | Finnhub + Finviz + yfinance | S&P 500 Momentum Scanner
+    </div>
+</div>
+
+{% if not is_history %}
+<script>
+    const CSRF_TOKEN = "{{ csrf_token() }}";
+    let pollInterval = 3000;
+    const maxInterval = 15000;
+    let polling = false;
+
+    function startRefresh() {
+        const btn = document.getElementById('refreshBtn');
+        if (btn) { btn.disabled = true; btn.textContent = '⏳ 요청 중...'; }
+        fetch('/refresh', {
+            method: 'POST',
+            headers: {
+                'Content-Type': 'application/x-www-form-urlencoded',
+                'X-CSRF-Token': CSRF_TOKEN
+            },
+            body: '_csrf_token=' + encodeURIComponent(CSRF_TOKEN)
+        })
+        .then(r => {
+            if (r.status === 403) {
+                alert('세션 만료. 페이지를 새로고침하세요.');
+                if (btn) { btn.disabled = false; btn.textContent = '🔄 새로 분석'; }
+                return null;
+            }
+            return r.json();
+        })
+        .then(d => {
+            if (!d) return;
+            if (d.status === 'started') {
+                polling = true;
+                pollInterval = 3000;
+                pollStatus();
+            } else {
+                alert('이미 분석 중입니다.');
+                if (btn) { btn.disabled = false; btn.textContent = '🔄 새로 분석'; }
+            }
+        })
+        .catch(() => {
+            if (btn) { btn.disabled = false; btn.textContent = '🔄 새로 분석'; }
+        });
+    }
+
+    function pollStatus() {
+        if (!polling) return;
+        fetch('/status')
+            .then(r => r.json())
+            .then(d => {
+                if (!d.is_analyzing) {
+                    polling = false;
+                    location.reload();
+                } else {
+                    pollInterval = Math.min(pollInterval * 1.3, maxInterval);
+                    setTimeout(pollStatus, pollInterval);
+                }
+            })
+            .catch(() => {
+                pollInterval = Math.min(pollInterval * 1.5, maxInterval);
+                setTimeout(pollStatus, pollInterval);
+            });
+    }
+
+    {% if is_analyzing %}
+    polling = true;
+    setTimeout(pollStatus, 3000);
+    {% endif %}
+</script>
+{% endif %}
+</body>
+</html>
