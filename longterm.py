@@ -281,10 +281,14 @@ def analyze_news(ticker_str, ticker_obj):
             # 간단한 키워드 감성 분석
             title_lower = title.lower()
             pos_words = ["upgrade", "beat", "strong", "growth", "surge", "rally", "buy",
-                        "outperform", "record", "positive", "bullish", "raise", "exceed"]
+                        "outperform", "record", "positive", "bullish", "raise", "exceed",
+                        "win", "award", "contract", "expand", "profit", "revenue",
+                        "innovation", "breakthrough", "partnership", "deal", "acquire"]
             neg_words = ["downgrade", "miss", "weak", "decline", "drop", "sell", "cut",
                         "underperform", "warning", "negative", "bearish", "loss", "layoff",
-                        "lawsuit", "recall", "investigation"]
+                        "lawsuit", "recall", "investigation", "fine", "penalty", "fraud",
+                        "bankruptcy", "default", "crash", "plunge", "slash", "delay"]
+
 
             sentiment = "neutral"
             if any(w in title_lower for w in pos_words):
@@ -303,7 +307,7 @@ def analyze_news(ticker_str, ticker_obj):
                 "source": provider_name,
             })
 
-        # 뉴스 점수 계산
+            # 뉴스 점수 계산
         total = result["positive"] + result["negative"] + result["neutral"]
         if total > 0:
             net = result["positive"] - result["negative"]
@@ -311,17 +315,20 @@ def analyze_news(ticker_str, ticker_obj):
                 result["news_score"] = 15
                 result["signals"].append(f"📰 뉴스 매우 긍정적 (+{result['positive']}/-{result['negative']})")
             elif net >= 1:
-                result["news_score"] = 8
+                result["news_score"] = 10
                 result["signals"].append(f"📰 뉴스 긍정적 (+{result['positive']}/-{result['negative']})")
-            elif net <= -3:
-                result["news_score"] = -15
-                result["signals"].append(f"📰 뉴스 매우 부정적 (+{result['positive']}/-{result['negative']})")
-            elif net <= -1:
-                result["news_score"] = -8
+            elif net == 0 and result["positive"] >= 1:
+                result["news_score"] = 5
+                result["signals"].append(f"📰 뉴스 혼조 (+{result['positive']}/-{result['negative']})")
+            elif net == 0:
+                result["news_score"] = 2
+                result["signals"].append(f"📰 뉴스 중립 (+{result['positive']}/-{result['negative']})")
+            elif net >= -2:
+                result["news_score"] = -5
                 result["signals"].append(f"📰 뉴스 부정적 (+{result['positive']}/-{result['negative']})")
             else:
-                result["news_score"] = 0
-                result["signals"].append(f"📰 뉴스 중립 (+{result['positive']}/-{result['negative']})")
+                result["news_score"] = -15
+                result["signals"].append(f"📰 뉴스 매우 부정적 (+{result['positive']}/-{result['negative']})")
 
     except Exception as e:
         LOG.warning(f"뉴스 분석 실패: {e}")
@@ -427,7 +434,6 @@ def analyze_long_trend(ticker_obj):
         close = hist["Close"]
         current = close.iloc[-1]
 
-        # 200일 이동평균
         ma200 = close.rolling(200).mean().iloc[-1]
         ma50 = close.rolling(50).mean().iloc[-1]
 
@@ -438,42 +444,51 @@ def analyze_long_trend(ticker_obj):
         if current > ma200:
             result["trend_score"] += 10
             result["signals"].append(f"✅ 200일선 위 ({result['ma200_gap_pct']:.1f}%)")
+        elif result["ma200_gap_pct"] > -5:
+            result["trend_score"] += 3
+            result["signals"].append(f"⚠️ 200일선 살짝 아래 ({result['ma200_gap_pct']:.1f}%) - 반등 가능")
         else:
-            result["trend_score"] -= 5
             result["signals"].append(f"⚠️ 200일선 아래 ({result['ma200_gap_pct']:.1f}%)")
 
-        # 골든크로스/데드크로스
         if ma50 > ma200:
-            result["trend_score"] += 5
+            result["trend_score"] += 8
             result["signals"].append("✅ 골든크로스 상태 (50일 > 200일)")
         else:
-            result["trend_score"] -= 5
             result["signals"].append("⚠️ 데드크로스 상태 (50일 < 200일)")
 
-        # 52주 고점/저점 대비
         high_52w = close[-252:].max() if len(close) >= 252 else close.max()
         low_52w = close[-252:].min() if len(close) >= 252 else close.min()
         from_high = ((current - high_52w) / high_52w) * 100
         from_low = ((current - low_52w) / low_52w) * 100
 
         if from_high > -10:
-            result["trend_score"] += 5
+            result["trend_score"] += 7
             result["signals"].append(f"🔝 52주 고점 근접 ({from_high:.1f}%)")
+        elif from_high > -20:
+            result["trend_score"] += 3
+            result["signals"].append(f"📊 52주 고점 대비 {from_high:.1f}%")
         elif from_high < -30:
             result["signals"].append(f"📉 52주 고점 대비 {from_high:.1f}%")
 
         if from_low < 20:
+            result["trend_score"] += 3
             result["signals"].append(f"📍 52주 저점 근접 (저점 대비 +{from_low:.1f}%)")
 
-        # 주간 RSI 계산 (간이)
         weekly = close.resample("W").last().dropna()
         if len(weekly) >= 15:
-            delta = weekly.diff()
+            delta = weekly.diff().dropna()
             gain = delta.where(delta > 0, 0).rolling(14).mean().iloc[-1]
             loss = (-delta.where(delta < 0, 0)).rolling(14).mean().iloc[-1]
             if loss != 0:
                 rs = gain / loss
-                result["weekly_rsi"] = 100 - (100 / (1 + rs))
+                rsi = 100 - (100 / (1 + rs))
+                result["weekly_rsi"] = rsi
+                if rsi < 30:
+                    result["trend_score"] += 5
+                    result["signals"].append(f"📉 주간 RSI 과매도 ({rsi:.1f})")
+                elif rsi < 45:
+                    result["trend_score"] += 2
+                    result["signals"].append(f"📊 주간 RSI 낮음 ({rsi:.1f})")
 
     except Exception as e:
         LOG.warning(f"장기 추세 분석 실패: {e}")
