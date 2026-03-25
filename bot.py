@@ -2,7 +2,7 @@
 S&P 500 Momentum Scanner
 ─────────────────────────
 Data: Finnhub (primary) → yfinance (fallback)
-Candidates: Finviz → yfinance batch → Finnhub quote
+Candidates: Finviz → yfinance 개별 → Finnhub quote
 Secrets: .env only (no hard-coded keys)
 """
 
@@ -13,7 +13,7 @@ import random
 import logging
 import inspect
 import pathlib
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, timezone
 from concurrent.futures import ThreadPoolExecutor, as_completed
 
 import requests
@@ -26,6 +26,9 @@ load_dotenv()
 FINNHUB_API_KEY = os.getenv("FINNHUB_API_KEY", "")
 TELEGRAM_TOKEN  = os.getenv("TELEGRAM_TOKEN", "")
 CHAT_ID         = os.getenv("CHAT_ID", "")
+
+# ──────────────────────────── 시간대 ────────────────────────────────
+KST = timezone(timedelta(hours=9))
 
 # ──────────────────────────── 상수 ─────────────────────────────────
 MAX_WORKERS     = 5
@@ -269,6 +272,7 @@ def fetch_ohlcv(ticker: str) -> pd.DataFrame | None:
 # ═══════════════════════════════════════════════════════════════════
 
 def fetch_finviz_sp500_gainers() -> list:
+    """1순위: Finviz 스크리너."""
     if not _FV_AVAILABLE:
         return []
     try:
@@ -304,53 +308,73 @@ def fetch_finviz_sp500_gainers() -> list:
 
 
 def _fetch_yfinance_batch_fallback() -> list:
-    """Wikipedia 대신 하드코딩 리스트 사용 (403 차단 방지)."""
+    """
+    2순위: yfinance 개별 다운로드 폴백.
+    batch 다운로드 시 MultiIndex 오류로 데이터가 뒤섞이는 문제를
+    종목별 개별 다운로드로 완전히 해결.
+    """
     if not _YF_AVAILABLE:
         return []
     try:
-        symbols = SP500_SYMBOLS
-        kw = {"period": "5d", "interval": "1d", "auto_adjust": True, "progress": False}
-        if _YF_SUPPORTS_MLI:
-            kw["multi_level_index"] = False
-        df = yf.download(symbols, **kw)
-        if df is None or df.empty:
-            return []
-
-        if isinstance(df.columns, pd.MultiIndex):
-            close = df["Close"]
-        elif "Close" in df.columns:
-            close = df[["Close"]]
-        else:
-            return []
-
-        if len(close) < 2:
-            return []
-
-        last = close.iloc[-1]
-        prev = close.iloc[-2]
-        chg  = ((last - prev) / prev * 100).dropna().sort_values(ascending=False)
-
         results = []
-        for sym in chg.head(MAX_TICKERS).index:
-            price_val  = safe_float(last[sym] if sym in last.index else 0)
-            change_val = round(safe_float(chg[sym] if sym in chg.index else 0), 2)
-            if price_val <= 0:
+        for sym in SP500_SYMBOLS:
+            try:
+                kw = {
+                    "period":      "5d",
+                    "interval":    "1d",
+                    "auto_adjust": True,
+                    "progress":    False,
+                }
+                if _YF_SUPPORTS_MLI:
+                    kw["multi_level_index"] = False
+
+                df = yf.download(sym, **kw)
+                if df is None or df.empty or len(df) < 2:
+                    continue
+
+                # Close 컬럼 확보
+                if "Close" not in df.columns:
+                    if "Adj Close" in df.columns:
+                        df["Close"] = df["Adj Close"]
+                    else:
+                        continue
+
+                last = safe_float(df["Close"].iloc[-1])
+                prev = safe_float(df["Close"].iloc[-2])
+                if last <= 0 or prev <= 0:
+                    continue
+
+                chg = round((last - prev) / prev * 100, 2)
+                results.append({
+                    "ticker":        sym,
+                    "company":       sym,
+                    "finviz_price":  last,
+                    "finviz_change": chg,
+                })
+
+                # MAX_TICKERS * 2 개 모이면 조기 종료
+                if len(results) >= MAX_TICKERS * 2:
+                    break
+
+            except Exception:
                 continue
-            results.append({
-                "ticker":        str(sym).strip().upper(),
-                "company":       str(sym),
-                "finviz_price":  price_val,
-                "finviz_change": change_val,
-            })
-        log.info("yfinance batch 폴백: %d 종목", len(results))
-        return results
+
+        # 상승률 높은 순 정렬 후 상위 MAX_TICKERS 반환
+        results.sort(key=lambda x: x["finviz_change"], reverse=True)
+        result = results[:MAX_TICKERS]
+        log.info("yfinance 개별 폴백: %d 종목", len(result))
+        return result
     except Exception as e:
         log.warning("yfinance batch 폴백 오류: %s", e)
         return []
 
 
 def _fetch_finnhub_sp500_fallback() -> list:
-    """하드코딩 리스트 + Finnhub quote API (무료 플랜 호환)."""
+    """
+    3순위: Finnhub quote API 폴백.
+    /index/constituents 는 무료 플랜 미지원 →
+    SP500_SYMBOLS 하드코딩 리스트 + /quote 엔드포인트 사용.
+    """
     if not FINNHUB_API_KEY:
         log.warning("FINNHUB_API_KEY 미설정 → Finnhub 폴백 스킵")
         return []
@@ -418,13 +442,13 @@ def compute_indicators(ticker: str) -> dict | None:
 
         result = {"price": price, "change_1d": change_1d}
 
-        # RSI (14) — Wilder's EMA
+        # ── RSI (14) — Wilder's EMA ──────────────────────────────
         if len(close) >= 15:
-            delta    = close.diff()
-            gain     = delta.clip(lower=0)
-            loss     = (-delta).clip(lower=0)
-            avg_gain = gain.ewm(alpha=1 / 14, adjust=False).mean()
-            avg_loss = loss.ewm(alpha=1 / 14, adjust=False).mean()
+            delta     = close.diff()
+            gain      = delta.clip(lower=0)
+            loss      = (-delta).clip(lower=0)
+            avg_gain  = gain.ewm(alpha=1 / 14, adjust=False).mean()
+            avg_loss  = loss.ewm(alpha=1 / 14, adjust=False).mean()
             last_gain = safe_float(avg_gain.iloc[-1])
             last_loss = safe_float(avg_loss.iloc[-1])
             if last_gain == 0 and last_loss == 0:
@@ -440,7 +464,7 @@ def compute_indicators(ticker: str) -> dict | None:
         else:
             result["rsi"] = 50.0
 
-        # MACD (12/26/9)
+        # ── MACD (12/26/9) ───────────────────────────────────────
         if len(close) >= 35:
             ema12       = close.ewm(span=12, adjust=False).mean()
             ema26       = close.ewm(span=26, adjust=False).mean()
@@ -454,7 +478,7 @@ def compute_indicators(ticker: str) -> dict | None:
         else:
             result["macd"] = result["macd_signal"] = result["macd_histogram"] = 0.0
 
-        # 이동평균 (20 / 50 / 200)
+        # ── 이동평균 (20 / 50 / 200) ─────────────────────────────
         for period in [20, 50, 200]:
             if len(close) >= period:
                 result[f"ma{period}"] = round(
@@ -485,19 +509,19 @@ def compute_indicators(ticker: str) -> dict | None:
                 if p20 >= p50 and c20 < c50:
                     result["dead_cross"] = True
 
-        # Stochastic %K / %D
+        # ── Stochastic %K / %D ───────────────────────────────────
         if len(close) >= 14:
-            low14  = low.rolling(14).min()
-            high14 = high.rolling(14).max()
-            denom  = (high14 - low14).replace(0, np.nan)
-            raw_k  = (close - low14) / denom * 100
+            low14   = low.rolling(14).min()
+            high14  = high.rolling(14).max()
+            denom   = (high14 - low14).replace(0, np.nan)
+            raw_k   = (close - low14) / denom * 100
             stoch_d = raw_k.rolling(3).mean()
-            result["stoch_k"] = round(safe_float(raw_k.iloc[-1],  50.0), 2)
+            result["stoch_k"] = round(safe_float(raw_k.iloc[-1],   50.0), 2)
             result["stoch_d"] = round(safe_float(stoch_d.iloc[-1], 50.0), 2)
         else:
             result["stoch_k"] = result["stoch_d"] = 50.0
 
-        # Ichimoku Cloud (shift 26)
+        # ── Ichimoku Cloud (shift 26) ─────────────────────────────
         if len(close) >= 52:
             tenkan = (high.rolling(9).max()  + low.rolling(9).min())  / 2
             kijun  = (high.rolling(26).max() + low.rolling(26).min()) / 2
@@ -523,7 +547,7 @@ def compute_indicators(ticker: str) -> dict | None:
             result["cloud_status"]     = CLOUD_STATUS_KO["inside"]
             result["cloud_status_raw"] = "inside"
 
-        # 20D VWAP (rolling sum)
+        # ── 20D VWAP (rolling sum) ───────────────────────────────
         if len(close) >= 20:
             tp      = (high + low + close) / 3
             tp_vol  = tp * volume
@@ -533,7 +557,7 @@ def compute_indicators(ticker: str) -> dict | None:
         else:
             result["vwap"] = price
 
-        # ATR (14)
+        # ── ATR (14) ─────────────────────────────────────────────
         if len(close) >= 15:
             tr = pd.concat([
                 high - low,
@@ -549,7 +573,7 @@ def compute_indicators(ticker: str) -> dict | None:
         result["target_2"]  = round(price + atr * 3.0, 2)
         result["stop_loss"] = round(price - atr * 1.5, 2)
 
-        # 거래량 비율
+        # ── 거래량 비율 ──────────────────────────────────────────
         if len(volume) >= 21:
             avg_vol  = safe_float(volume.rolling(20).mean().iloc[-1], 1)
             last_vol = safe_float(volume.iloc[-1])
@@ -725,16 +749,17 @@ def analyze_ticker(fv: dict) -> dict | None:
 # ═══════════════════════════════════════════════════════════════════
 
 def analyze() -> dict:
-    analyzed_at = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+    # KST 기준 분석 시각
+    analyzed_at = datetime.now(KST).strftime("%Y-%m-%d %H:%M:%S (KST)")
     log.info("═══ 분석 시작: %s ═══", analyzed_at)
 
     # 3중 폴백 수집
     candidates = fetch_finviz_sp500_gainers()
     if not candidates:
-        log.info("Finviz 실패 → yfinance batch 폴백")
+        log.info("Finviz 실패 → yfinance 개별 폴백")
         candidates = _fetch_yfinance_batch_fallback()
     if not candidates:
-        log.info("yfinance batch 실패 → Finnhub 폴백")
+        log.info("yfinance 실패 → Finnhub 폴백")
         candidates = _fetch_finnhub_sp500_fallback()
     if not candidates:
         log.error("모든 데이터 소스 실패")
@@ -780,7 +805,7 @@ def analyze() -> dict:
     stop_count  = sum(1 for r in results if r["entry_key"] == "stop")
 
     # 히스토리 저장
-    ts        = datetime.now().strftime(HISTORY_TS_FMT)
+    ts        = datetime.now(KST).strftime(HISTORY_TS_FMT)
     save_data = {
         "analyzed_at": analyzed_at,
         "total":       len(results),
