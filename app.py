@@ -8,7 +8,7 @@ from flask import Flask, render_template, jsonify, request, session, abort
 from dotenv import load_dotenv
 import bot
 import backtest as bt
-
+import longterm as lt
 load_dotenv()
 
 LOG = logging.getLogger("app")
@@ -25,6 +25,8 @@ HISTORY_DIR.mkdir(exist_ok=True)
 PRESIGNAL_DIR.mkdir(exist_ok=True)
 CONVICTION_DIR.mkdir(exist_ok=True)
 BACKTEST_DIR.mkdir(exist_ok=True)
+LONGTERM_DIR     = pathlib.Path("longterm")
+LONGTERM_DIR.mkdir(exist_ok=True)
 _HISTORY_NAME_RE = re.compile(r"^\d{4}-\d{2}-\d{2}_\d{6}$")
 HISTORY_PAGE_SIZE = 50
 
@@ -59,6 +61,8 @@ class AppState:
         self._analyzing_backtest = False
         self._conviction_results = None
         self._analyzing_conviction = False
+        self._longterm_results = None
+        self._analyzing_longterm = False
         self._error = None
         self._history_loaded = False
 
@@ -127,6 +131,8 @@ class AppState:
                 "presignal_results": self._presignal_results,
                 "conviction_results": self._conviction_results,
                 "analyzing_conviction": self._analyzing_conviction,
+                "longterm_results": self._longterm_results,
+                "analyzing_longterm": self._analyzing_longterm,
 
                 "backtest_results": self._backtest_results,
                 "analyzing": self._analyzing,
@@ -238,6 +244,7 @@ def index():
         analyzing=snap["analyzing"],
         analyzing_presignal=snap["analyzing_presignal"],
         analyzing_conviction=snap.get("analyzing_conviction", False), # New: pass conviction analysis state
+        analyzing_longterm=snap.get("analyzing_longterm", False),
         error=snap["error"],
         is_history=False,
         universes=bot.UNIVERSE_MAP,
@@ -257,14 +264,19 @@ def history_list():
             stem = f.stem.replace("backtest_", "")
             backtest_dates.append({"name": f.name, "label": _fmt_label(stem)})
 
+    longterm_dates = []
+    if LONGTERM_DIR.exists():
+        for f in sorted(LONGTERM_DIR.glob("*.json"), reverse=True)[:HISTORY_PAGE_SIZE]:
+            longterm_dates.append({"name": f.name, "label": _fmt_label(f.stem)})
+
     return render_template(
         "history.html",
         momentum_dates=_get_dates(HISTORY_DIR),
         presignal_dates=_get_dates(PRESIGNAL_DIR),
         conviction_dates=conviction_dates,
         backtest_dates=backtest_dates,
+        longterm_dates=longterm_dates,
     )
-
 
 @app.route("/history/momentum/<ds>")
 def history_momentum(ds):
@@ -434,6 +446,56 @@ def backtest_status():
         "analyzing": snap["analyzing_backtest"],
         "has_results": snap["backtest_results"] is not None,
     })
+# ── 중장기 분석 라우트 ─────────────────────────────────────────────
+@app.route("/longterm")
+def longterm_page():
+    files = sorted(LONGTERM_DIR.glob("*.json"), reverse=True)
+    data = None
+    req_file = request.args.get("file", "")
+    if req_file and (LONGTERM_DIR / req_file).exists():
+        try:
+            with open(LONGTERM_DIR / req_file, "r", encoding="utf-8") as f:
+                data = json.load(f)
+        except Exception:
+            pass
+    elif files:
+        try:
+            with open(files[0], "r", encoding="utf-8") as f:
+                data = json.load(f)
+        except Exception:
+            pass
+    history = [{"name": f.name, "label": f.stem.replace("_", " ")} for f in files[:20]]
+    return render_template("longterm.html", data=data, history_list=history)
+
+@app.route("/longterm/run", methods=["POST"])
+def longterm_run():
+    _validate_csrf()
+    with state._lock:
+        if state._analyzing_longterm:
+            return jsonify({"ok": False, "msg": "이미 분석 중"}), 409
+        state._analyzing_longterm = True
+
+    def _run():
+        try:
+            result = lt.analyze_longterm("sp500+sox")
+            with state._lock:
+                state._longterm_results = result
+        except Exception as e:
+            LOG.error(f"중장기 분석 에러: {e}")
+        finally:
+            with state._lock:
+                state._analyzing_longterm = False
+
+    threading.Thread(target=_run, daemon=True).start()
+    return jsonify({"ok": True})
+
+@app.route("/longterm/status")
+def longterm_status():
+    with state._lock:
+        return jsonify({
+            "analyzing": state._analyzing_longterm,
+            "has_data": state._longterm_results is not None,
+        })
 
 
 if __name__ == "__main__":
