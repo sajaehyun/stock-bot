@@ -443,7 +443,7 @@ def compute_indicators(ticker: str) -> dict | None:
 
 
         # 현재가 / 1일 변화율
-        price     = safe_float(close.iloc[-1])
+        price = round(safe_float(close.iloc[-1]), 2)
         change_1d = 0.0
         if len(close) >= 2:
             prev = safe_float(close.iloc[-2])
