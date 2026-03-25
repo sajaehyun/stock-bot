@@ -435,15 +435,11 @@ def compute_indicators(ticker: str) -> dict | None:
         return None
 
     try:
-        close  = df["Close"]
-        high   = df["High"]
-        low    = df["Low"]
-        volume = df["Volume"]
+      close  = pd.Series(df["Close"].values,  index=df.index, dtype=float)
+high   = pd.Series(df["High"].values,   index=df.index, dtype=float)
+low    = pd.Series(df["Low"].values,    index=df.index, dtype=float)
+volume = pd.Series(df["Volume"].values, index=df.index, dtype=float)
 
-        if isinstance(close,  pd.DataFrame): close  = close.squeeze()
-        if isinstance(high,   pd.DataFrame): high   = high.squeeze()
-        if isinstance(low,    pd.DataFrame): low    = low.squeeze()
-        if isinstance(volume, pd.DataFrame): volume = volume.squeeze()
 
         # 현재가 / 1일 변화율
         price     = safe_float(close.iloc[-1])
