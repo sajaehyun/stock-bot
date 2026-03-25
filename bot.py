@@ -42,6 +42,7 @@ HISTORY_DIR     = pathlib.Path("history")
 HISTORY_DIR.mkdir(exist_ok=True)
 HISTORY_TS_FMT  = "%Y-%m-%d_%H%M%S"
 
+
 # S&P 500 대표 종목 하드코딩 (Wikipedia/index API 대체)
 SP500_SYMBOLS = [
     "AAPL","MSFT","NVDA","AMZN","META","GOOGL","GOOG","BRK-B","LLY","AVGO",
@@ -218,6 +219,7 @@ def _finnhub_candles(ticker: str, days: int = 730) -> pd.DataFrame | None:
 
 
 def _yfinance_candles(ticker: str) -> pd.DataFrame | None:
+    """yfinance에서 2년 일봉 다운로드 (MultiIndex 완전 제거 + 중복 컬럼 제거)."""
     if not _YF_AVAILABLE:
         return None
     try:
@@ -234,22 +236,30 @@ def _yfinance_candles(ticker: str) -> pd.DataFrame | None:
         if raw is None or raw.empty:
             return None
 
-        # ── MultiIndex 완전 제거: 컬럼별로 1D squeeze ────────
+        # ── MultiIndex 완전 제거 ────────────────────────────
         if isinstance(raw.columns, pd.MultiIndex):
-            data = {}
-            for col in raw.columns:
-                field = col[0]   # "Close", "High", ...
-                if field not in data:
-                    arr = raw[col]
-                    # 혹시 2D면 첫 번째 열만 취함
-                    if hasattr(arr, "squeeze"):
-                        arr = arr.squeeze()
-                    if isinstance(arr, pd.DataFrame):
-                        arr = arr.iloc[:, 0]
-                    data[field] = arr.values.flatten()   # ← 반드시 1D
-            df = pd.DataFrame(data, index=raw.index)
+            # 단일 종목: level 0 = 필드명(Close, High...), level 1 = 티커
+            # 필드명만 추출하되, 중복 제거
+            seen = {}
+            new_cols = []
+            drop_idx = []
+            for i, col in enumerate(raw.columns):
+                field = col[0]  # "Close", "High", ...
+                if field in seen:
+                    drop_idx.append(i)  # 중복 컬럼 → 제거 대상
+                else:
+                    seen[field] = True
+                    new_cols.append((i, field))
+
+            # 중복 제거된 컬럼만 선택
+            keep_positions = [pos for pos, _ in new_cols]
+            df = raw.iloc[:, keep_positions].copy()
+            df.columns = [name for _, name in new_cols]
         else:
             df = raw.copy()
+            # 일반 컬럼도 중복 가능 → 중복 제거
+            if df.columns.duplicated().any():
+                df = df.loc[:, ~df.columns.duplicated(keep="first")]
 
         # ── 컬럼 이름 정규화 ─────────────────────────────────
         rename = {}
@@ -269,17 +279,25 @@ def _yfinance_candles(ticker: str) -> pd.DataFrame | None:
                 rename[c] = "Volume"
         df = df.rename(columns=rename)
 
+        # 중복 이름 재확인 (rename 후에도 발생 가능)
+        if df.columns.duplicated().any():
+            df = df.loc[:, ~df.columns.duplicated(keep="first")]
+
         if "Close" not in df.columns and "Adj Close" in df.columns:
             df["Close"] = df["Adj Close"]
         if "Close" not in df.columns:
             return None
+
+        # Close가 1D인지 최종 확인
+        if hasattr(df["Close"], "ndim") and df["Close"].ndim != 1:
+            log.warning("Close 컬럼이 여전히 2D [%s], shape=%s", ticker, df["Close"].shape)
+            df["Close"] = df["Close"].iloc[:, 0]
 
         return df if len(df) >= 40 else None
 
     except Exception as e:
         log.warning("yfinance 다운로드 오류 [%s]: %s", ticker, e)
         return None
-
 
 
 def fetch_ohlcv(ticker: str) -> pd.DataFrame | None:
@@ -334,95 +352,59 @@ def fetch_finviz_sp500_gainers() -> list:
 
 
 def _fetch_yfinance_batch_fallback() -> list:
-    """
-    2순위: yfinance 개별 다운로드 폴백.
-    MultiIndex 완전 제거 후 종가/변동률 추출.
-    """
-    if not _YF_AVAILABLE:
+    """2순위: yfinance batch download → MultiIndex 안전 처리."""
+    if not _YF_AVAILABLE or not SP500_SYMBOLS:
         return []
     try:
+        kw = {"period": "5d", "interval": "1d", "auto_adjust": True, "progress": False}
+        if _YF_SUPPORTS_MLI:
+            kw["multi_level_index"] = False
+
+        raw = yf.download(SP500_SYMBOLS, **kw)
+        if raw is None or raw.empty:
+            return []
+
+        # MultiIndex에서 Close 추출
+        if isinstance(raw.columns, pd.MultiIndex):
+            if "Close" in raw.columns.get_level_values(0):
+                close = raw["Close"].copy()
+            else:
+                return []
+        elif "Close" in raw.columns:
+            close = raw[["Close"]].copy()
+        else:
+            return []
+
+        # DataFrame인지 확인 (단일 종목이면 Series)
+        if isinstance(close, pd.Series):
+            return []
+
+        if len(close) < 2:
+            return []
+
+        last = close.iloc[-1]
+        prev = close.iloc[-2]
+        chg = ((last - prev) / prev * 100).dropna().sort_values(ascending=False)
+
         results = []
-        for sym in SP500_SYMBOLS:
-            try:
-                kw = {
-                    "period":      "5d",
-                    "interval":    "1d",
-                    "auto_adjust": True,
-                    "progress":    False,
-                }
-                if _YF_SUPPORTS_MLI:
-                    kw["multi_level_index"] = False
-
-                raw = yf.download(sym, **kw)
-                if raw is None or raw.empty or len(raw) < 2:
-                    continue
-
-                # ── MultiIndex 완전 제거 ──────────────────────
-                if isinstance(raw.columns, pd.MultiIndex):
-                    data = {}
-                    for col in raw.columns:
-                        field = col[0]
-                        if field not in data:
-                            arr = raw[col]
-                            if hasattr(arr, "squeeze"):
-                                arr = arr.squeeze()
-                            if isinstance(arr, pd.DataFrame):
-                                arr = arr.iloc[:, 0]
-                            data[field] = arr.values.flatten()
-                    df = pd.DataFrame(data, index=raw.index)
-                else:
-                    df = raw.copy()
-
-                # ── 컬럼 정규화 ──────────────────────────────
-                rename = {}
-                for c in df.columns:
-                    cl = str(c).lower().strip()
-                    if "close" in cl and "adj" not in cl:
-                        rename[c] = "Close"
-                    elif "adj" in cl and "close" in cl:
-                        rename[c] = "Adj Close"
-                df = df.rename(columns=rename)
-
-                if "Close" not in df.columns and "Adj Close" in df.columns:
-                    df["Close"] = df["Adj Close"]
-                if "Close" not in df.columns:
-                    continue
-
-                # ── 종가 1D 배열에서 직접 추출 ───────────────
-                close_arr = df["Close"].values.flatten()
-                if len(close_arr) < 2:
-                    continue
-
-                last = float(close_arr[-1])
-                prev = float(close_arr[-2])
-
-                if last <= 0 or prev <= 0 or np.isnan(last) or np.isnan(prev):
-                    continue
-
-                chg = round((last - prev) / prev * 100, 2)
-                results.append({
-                    "ticker":        sym,
-                    "company":       sym,
-                    "finviz_price":  round(last, 2),
-                    "finviz_change": chg,
-                })
-
-                if len(results) >= MAX_TICKERS * 2:
-                    break
-
-            except Exception as e:
-                log.debug("yfinance 개별 오류 [%s]: %s", sym, e)
+        for sym in chg.head(MAX_TICKERS).index:
+            price_val = float(last[sym]) if sym in last.index else 0
+            chg_val   = float(chg[sym])  if sym in chg.index  else 0
+            if price_val <= 0 or np.isnan(price_val):
                 continue
+            results.append({
+                "ticker":        str(sym).strip().upper(),
+                "company":       str(sym),
+                "finviz_price":  round(price_val, 2),
+                "finviz_change": round(chg_val, 2),
+            })
 
-        results.sort(key=lambda x: x["finviz_change"], reverse=True)
-        result = results[:MAX_TICKERS]
-        log.info("yfinance 개별 폴백: %d 종목", len(result))
-        return result
+        log.info("yfinance batch 폴백: %d 종목", len(results))
+        return results
 
     except Exception as e:
         log.warning("yfinance batch 폴백 오류: %s", e)
         return []
-
 
 def _fetch_finnhub_sp500_fallback() -> list:
     """
