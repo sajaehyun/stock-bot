@@ -336,8 +336,7 @@ def fetch_finviz_sp500_gainers() -> list:
 def _fetch_yfinance_batch_fallback() -> list:
     """
     2순위: yfinance 개별 다운로드 폴백.
-    batch 다운로드 시 MultiIndex 오류로 데이터가 뒤섞이는 문제를
-    종목별 개별 다운로드로 완전히 해결.
+    MultiIndex 완전 제거 후 종가/변동률 추출.
     """
     if not _YF_AVAILABLE:
         return []
@@ -354,42 +353,72 @@ def _fetch_yfinance_batch_fallback() -> list:
                 if _YF_SUPPORTS_MLI:
                     kw["multi_level_index"] = False
 
-                df = yf.download(sym, **kw)
-                if df is None or df.empty or len(df) < 2:
+                raw = yf.download(sym, **kw)
+                if raw is None or raw.empty or len(raw) < 2:
                     continue
 
-                # Close 컬럼 확보
-                if "Close" not in df.columns:
-                    if "Adj Close" in df.columns:
-                        df["Close"] = df["Adj Close"]
-                    else:
-                        continue
+                # ── MultiIndex 완전 제거 ──────────────────────
+                if isinstance(raw.columns, pd.MultiIndex):
+                    data = {}
+                    for col in raw.columns:
+                        field = col[0]
+                        if field not in data:
+                            arr = raw[col]
+                            if hasattr(arr, "squeeze"):
+                                arr = arr.squeeze()
+                            if isinstance(arr, pd.DataFrame):
+                                arr = arr.iloc[:, 0]
+                            data[field] = arr.values.flatten()
+                    df = pd.DataFrame(data, index=raw.index)
+                else:
+                    df = raw.copy()
 
-                last = safe_float(df["Close"].iloc[-1])
-                prev = safe_float(df["Close"].iloc[-2])
-                if last <= 0 or prev <= 0:
+                # ── 컬럼 정규화 ──────────────────────────────
+                rename = {}
+                for c in df.columns:
+                    cl = str(c).lower().strip()
+                    if "close" in cl and "adj" not in cl:
+                        rename[c] = "Close"
+                    elif "adj" in cl and "close" in cl:
+                        rename[c] = "Adj Close"
+                df = df.rename(columns=rename)
+
+                if "Close" not in df.columns and "Adj Close" in df.columns:
+                    df["Close"] = df["Adj Close"]
+                if "Close" not in df.columns:
+                    continue
+
+                # ── 종가 1D 배열에서 직접 추출 ───────────────
+                close_arr = df["Close"].values.flatten()
+                if len(close_arr) < 2:
+                    continue
+
+                last = float(close_arr[-1])
+                prev = float(close_arr[-2])
+
+                if last <= 0 or prev <= 0 or np.isnan(last) or np.isnan(prev):
                     continue
 
                 chg = round((last - prev) / prev * 100, 2)
                 results.append({
                     "ticker":        sym,
                     "company":       sym,
-                    "finviz_price":  last,
+                    "finviz_price":  round(last, 2),
                     "finviz_change": chg,
                 })
 
-                # MAX_TICKERS * 2 개 모이면 조기 종료
                 if len(results) >= MAX_TICKERS * 2:
                     break
 
-            except Exception:
+            except Exception as e:
+                log.debug("yfinance 개별 오류 [%s]: %s", sym, e)
                 continue
 
-        # 상승률 높은 순 정렬 후 상위 MAX_TICKERS 반환
         results.sort(key=lambda x: x["finviz_change"], reverse=True)
         result = results[:MAX_TICKERS]
         log.info("yfinance 개별 폴백: %d 종목", len(result))
         return result
+
     except Exception as e:
         log.warning("yfinance batch 폴백 오류: %s", e)
         return []
