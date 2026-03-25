@@ -671,9 +671,9 @@ def compute_score_and_status(ind: dict, fv: dict) -> dict:
 
     score = normalize_score(raw)
 
-    if score >= 70:
+    if score >= 65:
         entry = "🟢"; entry_key = "green"
-    elif score >= 50:
+    elif score >= 45:
         entry = "⏳"; entry_key = "wait"
     else:
         entry = "❌"; entry_key = "stop"
