@@ -3,6 +3,7 @@ S&P 500 + Semiconductor Momentum Scanner + Pre-Signal Scanner
 ──────────────────────────────────────────────────────────────
 Mode 1 (analyze):            당일 상승 종목 → 기술적 점수화
 Mode 2 (analyze_presignal):  전체 스캔 → "곧 움직일" 선행 신호 탐색
+Mode 3 (analyze_conviction): 7개 독립 필터 + 오버랩 보너스
 Universes: S&P 500 / SOX (반도체 30)
 """
 
@@ -14,8 +15,7 @@ import logging
 import inspect
 import pathlib
 from datetime import datetime, timedelta, timezone
-from concurrent.futures import ThreadPoolExecutor, as_completed, TimeoutError as FuturesTimeoutError
-
+from concurrent.futures import ThreadPoolExecutor, as_completed
 
 import requests
 import numpy as np
@@ -36,7 +36,7 @@ MAX_WORKERS     = 5
 MAX_TICKERS     = 30
 RAW_SCORE_MAX   = 140
 RAW_SCORE_MIN   = -80
-RAW_SCORE_RANGE = RAW_SCORE_MAX - RAW_SCORE_MIN  # 220
+RAW_SCORE_RANGE = RAW_SCORE_MAX - RAW_SCORE_MIN
 FINNHUB_BASE    = "https://finnhub.io/api/v1"
 FINNHUB_DELAY   = 1.1
 HISTORY_DIR     = pathlib.Path("history")
@@ -46,6 +46,10 @@ HISTORY_TS_FMT  = "%Y-%m-%d_%H%M%S"
 PRESIGNAL_DIR = pathlib.Path("presignal")
 PRESIGNAL_DIR.mkdir(exist_ok=True)
 PRESIGNAL_MAX_RESULTS = 20
+
+CONVICTION_DIR = pathlib.Path("conviction")
+CONVICTION_DIR.mkdir(exist_ok=True)
+CONVICTION_MAX_RESULTS = 20
 
 # ──────────────────────────── 종목 유니버스 ────────────────────────
 SP500_SYMBOLS = [
@@ -61,7 +65,6 @@ SP500_SYMBOLS = [
     "PANW","SNOW","COIN","PLTR","ARM","SMCI","DELL","HPQ","MU","QCOM",
 ]
 
-# SOX (필라델피아 반도체 지수) 30 구성 종목
 SOX_SYMBOLS = [
     "NVDA","AVGO","AMD","INTC","QCOM","TSM","MU","ASML","AMAT","LRCX",
     "KLAC","ADI","TXN","NXPI","MRVL","ON","SWKS","MCHP","ARM","MPWR",
@@ -69,30 +72,19 @@ SOX_SYMBOLS = [
 ]
 
 UNIVERSE_MAP = {
-    "sp500":      {"name": "S&P 500",     "symbols": SP500_SYMBOLS},
-    "sox":        {"name": "반도체 (SOX)", "symbols": SOX_SYMBOLS},
+    "sp500":      {"name": "S&P 500",       "symbols": SP500_SYMBOLS},
+    "sox":        {"name": "반도체 (SOX)",   "symbols": SOX_SYMBOLS},
     "sp500+sox":  {"name": "S&P 500 + SOX", "symbols": list(dict.fromkeys(SP500_SYMBOLS + SOX_SYMBOLS))},
 }
 
-# 한글 매핑
-CLOUD_STATUS_KO = {
-    "above":  "구름 위 ☁️",
-    "below":  "구름 아래 ⛅",
-    "inside": "구름 안 🌫️",
-}
-MA_TREND_KO = {
-    "bullish": "정배열 📈",
-    "bearish": "역배열 📉",
-}
+CLOUD_STATUS_KO = {"above": "구름 위 ☁️", "below": "구름 아래 ⛅", "inside": "구름 안 🌫️"}
+MA_TREND_KO     = {"bullish": "정배열 📈", "bearish": "역배열 📉"}
 
 # ──────────────────────────── 로깅 ─────────────────────────────────
 logging.basicConfig(
     level=logging.INFO,
     format="%(asctime)s [%(levelname)s] %(message)s",
-    handlers=[
-        logging.FileHandler("bot.log", encoding="utf-8"),
-        logging.StreamHandler(),
-    ],
+    handlers=[logging.FileHandler("bot.log", encoding="utf-8"), logging.StreamHandler()],
 )
 log = logging.getLogger(__name__)
 
@@ -111,6 +103,12 @@ try:
     _FV_AVAILABLE = True
 except ImportError:
     log.warning("finvizfinance 미설치 → Finviz 스크리너 비활성화")
+
+# ── yfinance용 공유 세션 (타임아웃 5초) ───────────────────────────
+_yf_session = None
+if _YF_AVAILABLE:
+    _yf_session = requests.Session()
+    _yf_session.headers.update({"User-Agent": "Mozilla/5.0"})
 
 
 # ═══════════════════════════════════════════════════════════════════
@@ -146,13 +144,7 @@ def normalize_score(raw: float) -> int:
 
 
 def _escape_html(text: str) -> str:
-    return (
-        str(text)
-        .replace("&", "&amp;")
-        .replace("<", "&lt;")
-        .replace(">", "&gt;")
-        .replace('"', "&quot;")
-    )
+    return str(text).replace("&", "&amp;").replace("<", "&lt;").replace(">", "&gt;").replace('"', "&quot;")
 
 
 # ═══════════════════════════════════════════════════════════════════
@@ -165,11 +157,7 @@ def send_telegram(message: str) -> None:
         return
     url = f"https://api.telegram.org/bot{TELEGRAM_TOKEN}/sendMessage"
     try:
-        resp = requests.post(
-            url,
-            json={"chat_id": CHAT_ID, "text": message[:4000], "parse_mode": "HTML"},
-            timeout=10,
-        )
+        resp = requests.post(url, json={"chat_id": CHAT_ID, "text": message[:4000], "parse_mode": "HTML"}, timeout=10)
         if resp.status_code != 200:
             log.warning("Telegram 전송 실패: %s", resp.text[:200])
     except Exception as e:
@@ -210,21 +198,12 @@ def _finnhub_get(endpoint: str, params: dict, retries: int = 3):
 def _finnhub_candles(ticker: str, days: int = 730) -> pd.DataFrame | None:
     now   = int(datetime.now().timestamp())
     start = int((datetime.now() - timedelta(days=days)).timestamp())
-    data  = _finnhub_get(
-        "stock/candle",
-        {"symbol": ticker, "resolution": "D", "from": start, "to": now},
-    )
+    data  = _finnhub_get("stock/candle", {"symbol": ticker, "resolution": "D", "from": start, "to": now})
     if not data or data.get("s") != "ok":
         return None
     try:
         df = pd.DataFrame(
-            {
-                "Open":   data["o"],
-                "High":   data["h"],
-                "Low":    data["l"],
-                "Close":  data["c"],
-                "Volume": data["v"],
-            },
+            {"Open": data["o"], "High": data["h"], "Low": data["l"], "Close": data["c"], "Volume": data["v"]},
             index=pd.to_datetime(data["t"], unit="s"),
         )
         df.index.name = "Date"
@@ -238,22 +217,20 @@ def _yfinance_candles(ticker: str) -> pd.DataFrame | None:
     if not _YF_AVAILABLE:
         return None
     try:
-        t = yf.Ticker(ticker)
-        raw = t.history(period="2y", interval="1d", auto_adjust=True)
+        t = yf.Ticker(ticker, session=_yf_session)
+        raw = t.history(period="2y", interval="1d", auto_adjust=True, timeout=10)
         if raw is None or raw.empty:
             return None
-
         df = raw.copy()
         rename = {}
         for c in df.columns:
             cl = str(c).lower().strip()
-            if cl == "close":   rename[c] = "Close"
-            elif cl == "open":  rename[c] = "Open"
-            elif cl == "high":  rename[c] = "High"
-            elif cl == "low":   rename[c] = "Low"
-            elif cl == "volume":rename[c] = "Volume"
+            if cl == "close":    rename[c] = "Close"
+            elif cl == "open":   rename[c] = "Open"
+            elif cl == "high":   rename[c] = "High"
+            elif cl == "low":    rename[c] = "Low"
+            elif cl == "volume": rename[c] = "Volume"
         df = df.rename(columns=rename)
-
         if "Close" not in df.columns:
             return None
         if df.columns.duplicated().any():
@@ -296,9 +273,8 @@ def fetch_finviz_sp500_gainers() -> list:
             if not ticker:
                 continue
             results.append({
-                "ticker":        ticker,
-                "company":       str(row.get("Company", "")),
-                "finviz_price":  safe_float(row.get("Price"), 0),
+                "ticker": ticker, "company": str(row.get("Company", "")),
+                "finviz_price": safe_float(row.get("Price"), 0),
                 "finviz_change": _parse_pct(row.get("Change", 0)),
             })
         log.info("Finviz: %d 종목 수집", len(results))
@@ -318,26 +294,17 @@ def _fetch_yfinance_batch_fallback() -> list:
         raw = yf.download(SP500_SYMBOLS, **kw)
         if raw is None or raw.empty:
             return []
-
         if isinstance(raw.columns, pd.MultiIndex):
-            if "Close" in raw.columns.get_level_values(0):
-                close = raw["Close"].copy()
-            else:
-                return []
+            close = raw["Close"].copy() if "Close" in raw.columns.get_level_values(0) else None
         elif "Close" in raw.columns:
             close = raw[["Close"]].copy()
         else:
             return []
-
-        if isinstance(close, pd.Series):
+        if close is None or isinstance(close, pd.Series) or len(close) < 2:
             return []
-        if len(close) < 2:
-            return []
-
         last = close.iloc[-1]
         prev = close.iloc[-2]
         chg  = ((last - prev) / prev * 100).dropna().sort_values(ascending=False)
-
         results = []
         for sym in chg.head(MAX_TICKERS).index:
             price_val = float(last[sym]) if sym in last.index else 0
@@ -345,10 +312,8 @@ def _fetch_yfinance_batch_fallback() -> list:
             if price_val <= 0 or np.isnan(price_val):
                 continue
             results.append({
-                "ticker":        str(sym).strip().upper(),
-                "company":       str(sym),
-                "finviz_price":  round(price_val, 2),
-                "finviz_change": round(chg_val, 2),
+                "ticker": str(sym).strip().upper(), "company": str(sym),
+                "finviz_price": round(price_val, 2), "finviz_change": round(chg_val, 2),
             })
         log.info("yfinance batch 폴백: %d 종목", len(results))
         return results
@@ -364,8 +329,7 @@ def _fetch_finnhub_sp500_fallback() -> list:
         q = _finnhub_get("quote", {"symbol": sym})
         if q and q.get("c", 0) > 0 and q.get("pc", 0) > 0:
             chg = (q["c"] - q["pc"]) / q["pc"] * 100
-            return {"ticker": sym, "company": sym,
-                    "finviz_price": round(q["c"], 2), "finviz_change": round(chg, 2)}
+            return {"ticker": sym, "company": sym, "finviz_price": round(q["c"], 2), "finviz_change": round(chg, 2)}
         return None
     with ThreadPoolExecutor(max_workers=3) as ex:
         raw = list(ex.map(_fetch_quote, SP500_SYMBOLS))
@@ -373,6 +337,125 @@ def _fetch_finnhub_sp500_fallback() -> list:
     result = quotes[:MAX_TICKERS]
     log.info("Finnhub 폴백: %d 종목", len(result))
     return result
+
+
+# ═══════════════════════════════════════════════════════════════════
+# 단기용 어닝/옵션 경량 분석
+# ═══════════════════════════════════════════════════════════════════
+
+_EMPTY_EARNINGS = {
+    "earnings_near": False, "days_to_earnings": None, "last_beat": None,
+    "last_surprise_pct": None, "post_reaction_1d": None,
+    "earnings_signals": [], "earnings_adj": 0,
+}
+
+_EMPTY_OPTIONS = {
+    "put_call_ratio": None, "options_signals": [], "options_adj": 0,
+}
+
+
+def _quick_earnings_check(ticker: str) -> dict:
+    result = {**_EMPTY_EARNINGS, "earnings_signals": []}
+    if not _YF_AVAILABLE:
+        return result
+    try:
+        t = yf.Ticker(ticker, session=_yf_session)
+        ed = t.earnings_dates
+        if ed is None or ed.empty:
+            return result
+
+        from datetime import date
+        today = date.today()
+
+        future = ed[ed["Reported EPS"].isna()]
+        if not future.empty:
+            next_date = future.index[0].date()
+            days = (next_date - today).days
+            result["days_to_earnings"] = days
+            if 0 <= days <= 7:
+                result["earnings_near"] = True
+                result["earnings_signals"].append(f"⚡ 어닝 {days}일 후 ({next_date})")
+                result["earnings_adj"] += 5
+
+        past = ed.dropna(subset=["Reported EPS"])
+        if not past.empty:
+            row = past.iloc[0]
+            reported = float(row.get("Reported EPS", 0))
+            estimate = float(row.get("EPS Estimate", 0)) if row.get("EPS Estimate") is not None else None
+            if estimate is not None and estimate != 0:
+                result["last_beat"] = reported > estimate
+                result["last_surprise_pct"] = round((reported - estimate) / abs(estimate) * 100, 1)
+                if result["last_beat"] and result["last_surprise_pct"] > 10:
+                    result["earnings_signals"].append(f"🔥 최근 어닝 +{result['last_surprise_pct']}% 서프라이즈")
+                    result["earnings_adj"] += 8
+                elif result["last_beat"]:
+                    result["earnings_signals"].append(f"✅ 최근 어닝 비트 (+{result['last_surprise_pct']}%)")
+                    result["earnings_adj"] += 3
+                elif result["last_surprise_pct"] < -10:
+                    result["earnings_signals"].append(f"📉 최근 어닝 미스 ({result['last_surprise_pct']}%)")
+                    result["earnings_adj"] -= 8
+
+            try:
+                hist = t.history(period="3mo", timeout=10)
+                if hist is not None and not hist.empty:
+                    e_date = pd.to_datetime(past.index[0]).normalize()
+                    after  = hist.index[hist.index >= e_date]
+                    before = hist.index[hist.index < e_date]
+                    if len(after) >= 1 and len(before) >= 1:
+                        r1d = round((float(hist.loc[after[0], "Close"]) - float(hist.loc[before[-1], "Close"])) / float(hist.loc[before[-1], "Close"]) * 100, 2)
+                        result["post_reaction_1d"] = r1d
+                        if result["last_beat"] and r1d < -3:
+                            result["earnings_signals"].append(f"⚠️ 비트에도 -{abs(r1d)}% 하락 (sell the news)")
+                            result["earnings_adj"] -= 5
+                        elif not result["last_beat"] and r1d > 3:
+                            result["earnings_signals"].append(f"🔥 미스에도 +{r1d}% 상승 (악재 선반영)")
+                            result["earnings_adj"] += 5
+            except Exception:
+                pass
+    except Exception as e:
+        log.debug("[%s] 어닝 경량 체크 실패: %s", ticker, e)
+    return result
+
+
+def _quick_options_check(ticker: str) -> dict:
+    result = {**_EMPTY_OPTIONS, "options_signals": []}
+    if not _YF_AVAILABLE:
+        return result
+    try:
+        t = yf.Ticker(ticker, session=_yf_session)
+        exps = t.options
+        if not exps:
+            return result
+        chain = t.option_chain(exps[0])
+        total_call = chain.calls["volume"].fillna(0).sum() if chain.calls is not None and not chain.calls.empty else 0
+        total_put  = chain.puts["volume"].fillna(0).sum()  if chain.puts is not None and not chain.puts.empty else 0
+        if total_call > 0:
+            pcr = round(total_put / total_call, 2)
+            result["put_call_ratio"] = pcr
+            if pcr > 1.5:
+                result["options_signals"].append(f"🔥 P/C {pcr} → 극단적 공포 (역발상)")
+                result["options_adj"] += 8
+            elif pcr > 1.0:
+                result["options_signals"].append(f"✅ P/C {pcr} → 약세 심리")
+                result["options_adj"] += 3
+            elif pcr < 0.4:
+                result["options_signals"].append(f"⚠️ P/C {pcr} → 과도한 낙관")
+                result["options_adj"] -= 5
+    except Exception as e:
+        log.debug("[%s] 옵션 경량 체크 실패: %s", ticker, e)
+    return result
+
+
+def _get_earnings_and_options(ticker: str) -> tuple:
+    try:
+        eq = _quick_earnings_check(ticker)
+    except Exception:
+        eq = {**_EMPTY_EARNINGS, "earnings_signals": []}
+    try:
+        oq = _quick_options_check(ticker)
+    except Exception:
+        oq = {**_EMPTY_OPTIONS, "options_signals": []}
+    return eq, oq
 
 
 # ═══════════════════════════════════════════════════════════════════
@@ -386,12 +469,10 @@ def compute_indicators(ticker: str) -> dict | None:
     df = fetch_ohlcv(ticker)
     if df is None:
         return None
-
     missing = [c for c in _REQUIRED_COLS if c not in df.columns]
     if missing:
         log.warning("[%s] 컬럼 누락: %s – 스킵", ticker, missing)
         return None
-
     try:
         close  = pd.Series(df["Close"].values.flatten(),  index=df.index, dtype=float)
         high   = pd.Series(df["High"].values.flatten(),   index=df.index, dtype=float)
@@ -404,10 +485,9 @@ def compute_indicators(ticker: str) -> dict | None:
             prev = safe_float(close.iloc[-2])
             if prev > 0:
                 change_1d = round((price - prev) / prev * 100, 2)
-
         result = {"price": price, "change_1d": change_1d}
 
-        # RSI (14) — Wilder's EMA
+        # RSI (14)
         if len(close) >= 15:
             delta    = close.diff()
             gain     = delta.clip(lower=0)
@@ -425,10 +505,10 @@ def compute_indicators(ticker: str) -> dict | None:
 
         # MACD (12/26/9)
         if len(close) >= 35:
-            ema12   = close.ewm(span=12, adjust=False).mean()
-            ema26   = close.ewm(span=26, adjust=False).mean()
-            macd_l  = ema12 - ema26
-            sig_l   = macd_l.ewm(span=9, adjust=False).mean()
+            ema12 = close.ewm(span=12, adjust=False).mean()
+            ema26 = close.ewm(span=26, adjust=False).mean()
+            macd_l = ema12 - ema26
+            sig_l  = macd_l.ewm(span=9, adjust=False).mean()
             result["macd"]           = round(safe_float(macd_l.iloc[-1]), 4)
             result["macd_signal"]    = round(safe_float(sig_l.iloc[-1]),  4)
             result["macd_histogram"] = round(safe_float(macd_l.iloc[-1]) - safe_float(sig_l.iloc[-1]), 4)
@@ -463,7 +543,7 @@ def compute_indicators(ticker: str) -> dict | None:
         else:
             result["stoch_k"] = result["stoch_d"] = 50.0
 
-        # Ichimoku Cloud (shift 26)
+        # Ichimoku Cloud
         if len(close) >= 52:
             tenkan = (high.rolling(9).max() + low.rolling(9).min()) / 2
             kijun  = (high.rolling(26).max() + low.rolling(26).min()) / 2
@@ -480,7 +560,7 @@ def compute_indicators(ticker: str) -> dict | None:
             result["cloud_top"] = result["cloud_bottom"] = price
             result["cloud_status"] = CLOUD_STATUS_KO["inside"]; result["cloud_status_raw"] = "inside"
 
-        # 20D VWAP
+        # VWAP (20D)
         if len(close) >= 20:
             tp      = (high + low + close) / 3
             vol_sum = volume.rolling(20).sum().replace(0, np.nan)
@@ -506,7 +586,7 @@ def compute_indicators(ticker: str) -> dict | None:
         else:
             result["volume_ratio"] = 1.0
 
-        # ── 선행 신호용 추가 지표 ────────────────────────────────
+        # ── 선행 신호용 추가 지표 ──
         # 볼린저 밴드
         if len(close) >= 20:
             ma20_bb = close.rolling(20).mean(); std20 = close.rolling(20).std()
@@ -519,12 +599,13 @@ def compute_indicators(ticker: str) -> dict | None:
             else:
                 result["bb_width_percentile"] = 50.0
         else:
-            result["bb_upper"] = result["bb_lower"] = price; result["bb_width"] = 0; result["bb_width_percentile"] = 50.0
+            result["bb_upper"] = result["bb_lower"] = price
+            result["bb_width"] = 0; result["bb_width_percentile"] = 50.0
 
         # ATR 백분위
         if len(close) >= 15:
-            tr_s   = pd.concat([high - low, (high - close.shift(1)).abs(), (low - close.shift(1)).abs()], axis=1).max(axis=1)
-            atr_s  = tr_s.rolling(14).mean().dropna()
+            tr_s  = pd.concat([high - low, (high - close.shift(1)).abs(), (low - close.shift(1)).abs()], axis=1).max(axis=1)
+            atr_s = tr_s.rolling(14).mean().dropna()
             if len(atr_s) >= 120:
                 result["atr_percentile"] = round((atr_s.tail(120) < safe_float(atr_s.iloc[-1])).sum() / 120 * 100, 1)
             else:
@@ -535,9 +616,9 @@ def compute_indicators(ticker: str) -> dict | None:
         # MACD 히스토그램 전환
         result["macd_cross_up"] = result["macd_cross_down"] = result["macd_approaching_zero"] = False
         if len(close) >= 35:
-            ema12_s  = close.ewm(span=12, adjust=False).mean()
-            ema26_s  = close.ewm(span=26, adjust=False).mean()
-            hist_s   = ema12_s - ema26_s - (ema12_s - ema26_s).ewm(span=9, adjust=False).mean()
+            ema12_s = close.ewm(span=12, adjust=False).mean()
+            ema26_s = close.ewm(span=26, adjust=False).mean()
+            hist_s  = ema12_s - ema26_s - (ema12_s - ema26_s).ewm(span=9, adjust=False).mean()
             if len(hist_s) >= 3:
                 h1, h2, h3 = safe_float(hist_s.iloc[-3]), safe_float(hist_s.iloc[-2]), safe_float(hist_s.iloc[-1])
                 result["macd_cross_up"]         = (h2 <= 0 and h3 > 0) or (h1 < h2 < 0 and h3 > h2)
@@ -547,7 +628,7 @@ def compute_indicators(ticker: str) -> dict | None:
         # 골든크로스 임박
         result["golden_cross_approaching"] = False; result["ma50_ma200_gap"] = 0.0
         if len(close) >= 200:
-            mv50 = safe_float(close.rolling(50).mean().iloc[-1])
+            mv50  = safe_float(close.rolling(50).mean().iloc[-1])
             mv200 = safe_float(close.rolling(200).mean().iloc[-1])
             if mv200 > 0:
                 gap = (mv50 - mv200) / mv200 * 100
@@ -556,7 +637,6 @@ def compute_indicators(ticker: str) -> dict | None:
                     result["golden_cross_approaching"] = True
 
         return result
-
     except Exception as e:
         log.error("지표 계산 오류 [%s]: %s", ticker, e, exc_info=True)
         return None
@@ -609,18 +689,10 @@ def compute_score_and_status(ind: dict, fv: dict, ticker: str = "") -> dict:
 
     fc = fv.get("finviz_change", 0)
     if fc >= 5: raw += 5; signals.append(f"✅ Finviz +{fc}%")
+
     # ── 어닝/옵션 단기 반영 ──
     if ticker:
-        _pool = ThreadPoolExecutor(max_workers=1)
-        try:
-            eq = _pool.submit(_quick_earnings_check, ticker).result(timeout=5)
-        except Exception:
-            eq = {"earnings_near":False,"days_to_earnings":None,"last_beat":None,"last_surprise_pct":None,"post_reaction_1d":None,"earnings_signals":[],"earnings_adj":0}
-        try:
-            oq = _pool.submit(_quick_options_check, ticker).result(timeout=5)
-        except Exception:
-            oq = {"put_call_ratio":None,"options_signals":[],"options_adj":0}
-        _pool.shutdown(wait=False)
+        eq, oq = _get_earnings_and_options(ticker)
         raw += eq["earnings_adj"]
         raw += oq["options_adj"]
         signals.extend(eq["earnings_signals"])
@@ -639,203 +711,60 @@ def compute_score_and_status(ind: dict, fv: dict, ticker: str = "") -> dict:
 # ═══════════════════════════════════════════════════════════════════
 # 선행 신호 점수
 # ═══════════════════════════════════════════════════════════════════
-# ═══════════════════════════════════════════════════════════════════
-# 단기용 어닝 경량 분석
-# ═══════════════════════════════════════════════════════════════════
 
-def _quick_earnings_check(ticker: str) -> dict:
-    """단기 매매용 어닝 경량 체크 (임박 여부, 최근 서프라이즈, 시장 반응)"""
-    result = {
-        "earnings_near": False,
-        "days_to_earnings": None,
-        "last_beat": None,
-        "last_surprise_pct": None,
-        "post_reaction_1d": None,
-        "earnings_signals": [],
-        "earnings_adj": 0,
-    }
-    if not _YF_AVAILABLE:
-        return result
-    try:
-        t = yf.Ticker(ticker)
-        ed = t.earnings_dates
-        if ed is None or ed.empty:
-            return result
-
-        from datetime import date
-        today = date.today()
-
-        # 다음 어닝 (미래)
-        future = ed[ed["Reported EPS"].isna()]
-        if not future.empty:
-            next_date = future.index[0].date()
-            days = (next_date - today).days
-            result["days_to_earnings"] = days
-            if 0 <= days <= 7:
-                result["earnings_near"] = True
-                result["earnings_signals"].append(f"⚡ 어닝 {days}일 후 ({next_date})")
-                result["earnings_adj"] += 5  # 변동성 기회
-
-        # 최근 실적
-        past = ed.dropna(subset=["Reported EPS"])
-        if not past.empty:
-            row = past.iloc[0]
-            reported = float(row.get("Reported EPS", 0))
-            estimate = float(row.get("EPS Estimate", 0)) if row.get("EPS Estimate") is not None else None
-            if estimate is not None and estimate != 0:
-                result["last_beat"] = reported > estimate
-                result["last_surprise_pct"] = round((reported - estimate) / abs(estimate) * 100, 1)
-
-                if result["last_beat"] and result["last_surprise_pct"] > 10:
-                    result["earnings_signals"].append(f"🔥 최근 어닝 +{result['last_surprise_pct']}% 서프라이즈")
-                    result["earnings_adj"] += 8
-                elif result["last_beat"]:
-                    result["earnings_signals"].append(f"✅ 최근 어닝 비트 (+{result['last_surprise_pct']}%)")
-                    result["earnings_adj"] += 3
-                elif result["last_surprise_pct"] < -10:
-                    result["earnings_signals"].append(f"📉 최근 어닝 미스 ({result['last_surprise_pct']}%)")
-                    result["earnings_adj"] -= 8
-
-            # 어닝 후 1일 반응
-            try:
-                hist = t.history(period="3mo")
-                if hist is not None and not hist.empty:
-                    import pandas as _pd
-                    e_date = _pd.to_datetime(past.index[0]).normalize()
-                    after = hist.index[hist.index >= e_date]
-                    before = hist.index[hist.index < e_date]
-                    if len(after) >= 1 and len(before) >= 1:
-                        r1d = round((float(hist.loc[after[0], "Close"]) - float(hist.loc[before[-1], "Close"])) / float(hist.loc[before[-1], "Close"]) * 100, 2)
-                        result["post_reaction_1d"] = r1d
-                        if result["last_beat"] and r1d < -3:
-                            result["earnings_signals"].append(f"⚠️ 비트에도 -{abs(r1d)}% 하락 (sell the news)")
-                            result["earnings_adj"] -= 5
-                        elif not result["last_beat"] and r1d > 3:
-                            result["earnings_signals"].append(f"🔥 미스에도 +{r1d}% 상승 (악재 선반영)")
-                            result["earnings_adj"] += 5
-            except Exception:
-                pass
-
-    except Exception as e:
-        log.debug(f"[{ticker}] 어닝 경량 체크 실패: {e}")
-
-    return result
-
-
-def _quick_options_check(ticker: str) -> dict:
-    """단기용 풋/콜 비율 경량 체크"""
-    result = {
-        "put_call_ratio": None,
-        "options_signals": [],
-        "options_adj": 0,
-    }
-    if not _YF_AVAILABLE:
-        return result
-    try:
-        t = yf.Ticker(ticker)
-        exps = t.options
-        if not exps:
-            return result
-
-        total_put = 0
-        total_call = 0
-        for exp in exps[:1]:  # 가장 가까운 만기 1개만 (속도)
-            chain = t.option_chain(exp)
-            if chain.calls is not None and not chain.calls.empty:
-                total_call += chain.calls["volume"].fillna(0).sum()
-            if chain.puts is not None and not chain.puts.empty:
-                total_put += chain.puts["volume"].fillna(0).sum()
-
-        if total_call > 0:
-            pcr = round(total_put / total_call, 2)
-            result["put_call_ratio"] = pcr
-
-            if pcr > 1.5:
-                result["options_signals"].append(f"🔥 P/C {pcr} → 극단적 공포 (역발상)")
-                result["options_adj"] += 8
-            elif pcr > 1.0:
-                result["options_signals"].append(f"✅ P/C {pcr} → 약세 심리")
-                result["options_adj"] += 3
-            elif pcr < 0.4:
-                result["options_signals"].append(f"⚠️ P/C {pcr} → 과도한 낙관")
-                result["options_adj"] -= 5
-
-    except Exception as e:
-        log.debug(f"[{ticker}] 옵션 경량 체크 실패: {e}")
-
-    return result
 def compute_presignal_score(ind: dict, ticker: str = "") -> dict:
     raw = 0; signals = []; price = ind.get("price", 0)
 
-    # 1. 변동성 수축
     sq = (ind.get("bb_width_percentile", 50) + ind.get("atr_percentile", 50)) / 2
     if sq <= 10:   raw += 25; signals.append("🔥 극도의 변동성 수축 (폭발 임박)")
     elif sq <= 20: raw += 20; signals.append("🔥 강한 변동성 수축")
     elif sq <= 35: raw += 12; signals.append("✅ 변동성 수축 진행 중")
 
-    # 2. RSI 반등
     rsi = ind.get("rsi", 50)
     if 30 <= rsi <= 40:   raw += 20; signals.append("✅ RSI 과매도 반등 구간 (30-40)")
     elif 25 <= rsi < 30:  raw += 15; signals.append("✅ RSI 깊은 과매도 (반등 대기)")
     elif 40 < rsi <= 45:  raw += 8;  signals.append("✅ RSI 약세 탈출 중 (40-45)")
 
-    # 3. MACD 전환
-    if ind.get("macd_cross_up"):         raw += 20; signals.append("🔥 MACD 히스토그램 음→양 전환")
+    if ind.get("macd_cross_up"):           raw += 20; signals.append("🔥 MACD 히스토그램 음→양 전환")
     elif ind.get("macd_approaching_zero"): raw += 12; signals.append("✅ MACD 제로라인 돌파 임박")
 
-    # 4. 골든크로스 임박
     if ind.get("golden_cross"):
         raw += 15; signals.append("🔥 골든크로스 발생!")
     elif ind.get("golden_cross_approaching"):
         raw += 12; signals.append(f"✅ 골든크로스 임박 (갭 {ind.get('ma50_ma200_gap',0)}%)")
 
-    # 5. 거래량+가격 미반응
     vr = ind.get("volume_ratio", 1.0); chg = abs(ind.get("change_1d", 0))
     if vr >= 2.0 and chg < 2.0:   raw += 15; signals.append(f"🔥 거래량 급증({vr}x) + 가격 소폭 → 에너지 축적")
     elif vr >= 1.5 and chg < 1.5: raw += 8;  signals.append(f"✅ 거래량 증가({vr}x) + 가격 미반응")
 
-    # 6. Stoch 과매도 탈출
     sk, sd = ind.get("stoch_k", 50), ind.get("stoch_d", 50)
     if 20 < sk <= 30 and sk > sd: raw += 10; signals.append("✅ Stoch 과매도 탈출 중")
     elif sk <= 20:                raw += 5;  signals.append("⏳ Stoch 과매도 (반등 미확인)")
 
-    # 7. BB 하단 반등
     bbl = ind.get("bb_lower", 0)
     if bbl > 0 and price > 0:
         dist = (price - bbl) / price * 100
         if 0 < dist <= 1.5: raw += 10; signals.append("✅ 볼린저 하단 근접 반등")
         elif dist <= 0:     raw += 5;  signals.append("⏳ 볼린저 하단 이탈")
 
-    # 8. 구름 안 진입
     if ind.get("cloud_status_raw") == "inside":
         raw += 5; signals.append("⏳ 구름 안 진입 (전환 구간)")
 
-    # 감점
     c1d = ind.get("change_1d", 0)
     if c1d > 5:      raw -= 15; signals.append("⚠️ 당일 5%+ 상승 (후행 위험)")
     elif c1d > 3:    raw -= 8;  signals.append("⚠️ 당일 3%+ 상승")
     if rsi > 70:     raw -= 15; signals.append("⚠️ RSI 과열 → 선행 부적합")
     elif rsi > 60:   raw -= 5;  signals.append("⚠️ RSI 중립 상단")
-    # ── 어닝/옵션 단기 반영 ──
+
+    # ── 어닝/옵션 선행 반영 ──
     if ticker:
-        _pool = ThreadPoolExecutor(max_workers=1)
-        try:
-            eq = _pool.submit(_quick_earnings_check, ticker).result(timeout=5)
-        except Exception:
-            eq = {"earnings_near":False,"days_to_earnings":None,"last_beat":None,"last_surprise_pct":None,"post_reaction_1d":None,"earnings_signals":[],"earnings_adj":0}
-        try:
-            oq = _pool.submit(_quick_options_check, ticker).result(timeout=5)
-        except Exception:
-            oq = {"put_call_ratio":None,"options_signals":[],"options_adj":0}
-        _pool.shutdown(wait=False)
+        eq, oq = _get_earnings_and_options(ticker)
         raw += eq["earnings_adj"]
         raw += oq["options_adj"]
         signals.extend(eq["earnings_signals"])
         signals.extend(oq["options_signals"])
         ind["_earnings"] = eq
         ind["_options"] = oq
-
-
 
     score = max(0, min(100, raw))
     if score >= 60:   g = "🔥 강력"; gk = "strong"
@@ -845,6 +774,93 @@ def compute_presignal_score(ind: dict, ticker: str = "") -> dict:
 
     return {"presignal_score": score, "presignal_raw": raw,
             "presignal_grade": g, "grade_key": gk, "presignal_signals": signals}
+
+
+# ═══════════════════════════════════════════════════════════════════
+# 확신 점수
+# ═══════════════════════════════════════════════════════════════════
+
+def _compute_conviction_score(ind: dict) -> dict:
+    filters_hit = 0; raw = 0; signals = []; price = ind.get("price", 0)
+
+    bb_pct = ind.get("bb_width_percentile", 50); atr_pct = ind.get("atr_percentile", 50)
+    squeeze_avg = (bb_pct + atr_pct) / 2
+    if squeeze_avg <= 15:
+        raw += 18; filters_hit += 1; signals.append("🔥 TTM Squeeze: 극도의 변동성 수축 (폭발 임박)")
+    elif squeeze_avg <= 25:
+        raw += 12; filters_hit += 1; signals.append("✅ TTM Squeeze: 변동성 수축 진행 중")
+    elif squeeze_avg <= 35:
+        raw += 6; signals.append("⏳ TTM Squeeze: 약한 수축")
+
+    rsi = ind.get("rsi", 50)
+    if 30 <= rsi <= 40:
+        raw += 16; filters_hit += 1; signals.append("🔥 RSI 바닥 반등 (30-40)")
+    elif 25 <= rsi < 30:
+        raw += 12; filters_hit += 1; signals.append("✅ RSI 깊은 과매도 (반등 대기)")
+    elif 40 < rsi <= 45:
+        raw += 6; signals.append("⏳ RSI 약세 탈출 중")
+
+    if ind.get("macd_cross_up"):
+        raw += 16; filters_hit += 1; signals.append("🔥 MACD 히스토그램 음→양 전환")
+    elif ind.get("macd_approaching_zero"):
+        raw += 10; filters_hit += 1; signals.append("✅ MACD 제로라인 돌파 임박")
+
+    if ind.get("golden_cross"):
+        raw += 16; filters_hit += 1; signals.append("🔥 골든크로스 발생!")
+    elif ind.get("golden_cross_approaching"):
+        gap = ind.get("ma50_ma200_gap", 0)
+        raw += 12; filters_hit += 1; signals.append(f"✅ 골든크로스 임박 (MA 갭 {gap}%)")
+
+    vr = ind.get("volume_ratio", 1.0); chg = abs(ind.get("change_1d", 0))
+    if vr >= 2.0 and chg < 2.0:
+        raw += 14; filters_hit += 1; signals.append(f"🔥 스마트머니 축적: 거래량 {vr}x + 가격 미반응")
+    elif vr >= 1.5 and chg < 1.5:
+        raw += 8; filters_hit += 1; signals.append(f"✅ 거래량 증가({vr}x) + 가격 안정")
+
+    sk = ind.get("stoch_k", 50); sd = ind.get("stoch_d", 50)
+    if 20 < sk <= 35 and sk > sd:
+        raw += 12; filters_hit += 1; signals.append("✅ Stoch 과매도 탈출 (%K > %D)")
+    elif sk <= 20:
+        raw += 5; signals.append("⏳ Stoch 과매도 (반등 미확인)")
+
+    bbl = ind.get("bb_lower", 0)
+    if bbl > 0 and price > 0:
+        dist = (price - bbl) / price * 100
+        if 0 < dist <= 1.5:
+            raw += 12; filters_hit += 1; signals.append("🔥 볼린저 하단 근접 반등")
+        elif dist <= 0:
+            raw += 6; signals.append("⏳ 볼린저 하단 이탈 (바닥 탐색)")
+        elif dist <= 3.0:
+            raw += 4; signals.append("⏳ 볼린저 하단 접근 중")
+
+    if filters_hit >= 4:
+        bonus = 1.6; signals.insert(0, f"⭐ {filters_hit}개 필터 동시 충족 → 1.6x 보너스")
+    elif filters_hit >= 3:
+        bonus = 1.4; signals.insert(0, f"🔥 {filters_hit}개 필터 동시 충족 → 1.4x 보너스")
+    elif filters_hit >= 2:
+        bonus = 1.2; signals.insert(0, f"✅ {filters_hit}개 필터 동시 충족 → 1.2x 보너스")
+    else:
+        bonus = 1.0
+
+    raw = raw * bonus
+
+    c1d = ind.get("change_1d", 0)
+    if c1d > 5:   raw -= 20; signals.append("⚠️ 당일 5%+ 상승 (이미 움직임 → 후행 위험)")
+    elif c1d > 3: raw -= 10; signals.append("⚠️ 당일 3%+ 상승")
+    if rsi > 70:   raw -= 20; signals.append("⚠️ RSI 과열 (>70) → 확신 부적합")
+    elif rsi > 60: raw -= 8;  signals.append("⚠️ RSI 중립 상단 (>60)")
+    if ind.get("dead_cross"):            raw -= 15; signals.append("⚠️ 데드크로스 발생 → 하방 압력")
+    if ind.get("cloud_status_raw") == "below": raw -= 5; signals.append("⚠️ 구름 아래 위치")
+
+    score = max(0, min(100, int(round(raw))))
+    if score >= 70:   grade = "⭐ 확신"; grade_key = "conviction"
+    elif score >= 50: grade = "🔥 유력"; grade_key = "strong"
+    elif score >= 30: grade = "✅ 관심"; grade_key = "watch"
+    else:             grade = "⬜ 미달"; grade_key = "weak"
+
+    return {"conviction_score": score, "conviction_raw": round(raw, 1), "conviction_grade": grade,
+            "grade_key": grade_key, "filters_hit": filters_hit, "overlap_bonus": bonus,
+            "conviction_signals": signals}
 
 
 # ═══════════════════════════════════════════════════════════════════
@@ -909,61 +925,74 @@ def analyze_ticker_presignal(ticker: str) -> dict | None:
         log.error("[%s] 선행 분석 오류: %s", ticker, e, exc_info=True); return None
 
 
+def analyze_ticker_conviction(ticker: str) -> dict | None:
+    try:
+        ind = compute_indicators(ticker)
+        if ind is None:
+            return None
+        scoring = _compute_conviction_score(ind)
+        return {
+            "ticker": ticker, "company": ticker,
+            "price": ind["price"], "change_1d": ind["change_1d"],
+            **{k: ind.get(k, d) for k, d in [
+                ("rsi",50.0),("macd_histogram",0),("stoch_k",50.0),("stoch_d",50.0),
+                ("volume_ratio",1.0),("bb_width",0),("bb_width_percentile",50),
+                ("atr",0),("atr_percentile",50),("ma_trend",""),("ma_trend_raw","bearish"),
+                ("golden_cross",False),("golden_cross_approaching",False),
+                ("dead_cross",False),("ma50_ma200_gap",0),
+                ("macd_cross_up",False),("macd_approaching_zero",False),
+                ("cloud_status",""),("cloud_status_raw","inside"),
+                ("bb_lower",0),("target_1",0),("target_2",0),("stop_loss",0),
+            ]},
+            **scoring,
+        }
+    except Exception as e:
+        log.error("[%s] 확신 분석 오류: %s", ticker, e, exc_info=True); return None
+
+
 # ═══════════════════════════════════════════════════════════════════
 # 선행 신호 — batch 1차 필터링
 # ═══════════════════════════════════════════════════════════════════
 
 def _get_presignal_candidates(symbols: list) -> list:
-    """batch로 RSI/거래량 기준 1차 필터링 → 상위 40개만 반환."""
     if not _YF_AVAILABLE or not symbols:
         return symbols[:40]
     try:
         kw = {"period": "3mo", "interval": "1d", "auto_adjust": True, "progress": False}
         if _YF_SUPPORTS_MLI:
             kw["multi_level_index"] = False
-
         raw = yf.download(symbols, **kw)
         if raw is None or raw.empty:
             return symbols[:40]
-
         if isinstance(raw.columns, pd.MultiIndex):
             close  = raw["Close"].copy()  if "Close"  in raw.columns.get_level_values(0) else None
             volume = raw["Volume"].copy() if "Volume" in raw.columns.get_level_values(0) else None
         else:
             close  = raw[["Close"]]  if "Close"  in raw.columns else None
             volume = raw[["Volume"]] if "Volume" in raw.columns else None
-
         if close is None or isinstance(close, pd.Series) or len(close) < 14:
             return symbols[:40]
-
-        last = close.iloc[-1]
-        prev = close.iloc[-2]
-        chg  = ((last - prev) / prev * 100).dropna()
-
-        # 거래량 비율
+        last = close.iloc[-1]; prev = close.iloc[-2]
+        chg = ((last - prev) / prev * 100).dropna()
         if volume is not None and not isinstance(volume, pd.Series) and len(volume) >= 20:
-            vol_last = volume.iloc[-1]
-            vol_avg  = volume.tail(20).mean()
+            vol_last  = volume.iloc[-1]
+            vol_avg   = volume.tail(20).mean()
             vol_ratio = (vol_last / vol_avg.replace(0, np.nan)).dropna()
         else:
             vol_ratio = pd.Series(dtype=float)
-
         candidates = []
         for sym in chg.index:
             c = abs(float(chg[sym])) if sym in chg.index else 99
-            if c > 5:  # 이미 많이 오른 종목 제외
+            if c > 5:
                 continue
             vr = float(vol_ratio[sym]) if sym in vol_ratio.index else 1.0
             if np.isnan(vr):
                 vr = 1.0
             candidates.append((sym, c, vr))
-
-        # 거래량 높은 순 정렬
         candidates.sort(key=lambda x: x[2], reverse=True)
         result = [str(c[0]) for c in candidates[:40]]
         log.info("선행 신호 1차 필터: %d → %d 종목", len(symbols), len(result))
         return result if result else symbols[:40]
-
     except Exception as e:
         log.warning("선행 신호 1차 필터 오류: %s", e)
         return symbols[:40]
@@ -990,8 +1019,7 @@ def analyze() -> dict:
         log.info("yfinance 실패 → Finnhub 폴백")
         candidates = _fetch_finnhub_sp500_fallback()
     if not candidates:
-        return {"results": [], "analyzed_at": analyzed_at, "green": 0, "wait": 0, "stop": 0,
-                "error": "데이터 소스 없음"}
+        return {"results": [], "analyzed_at": analyzed_at, "green": 0, "wait": 0, "stop": 0, "error": "데이터 소스 없음"}
 
     log.info("후보 종목: %d개", len(candidates))
     results = []
@@ -1005,16 +1033,14 @@ def analyze() -> dict:
                 log.error("[%s] future 오류: %s", fmap[f], e)
 
     if not results:
-        return {"results": [], "analyzed_at": analyzed_at, "green": 0, "wait": 0, "stop": 0,
-                "error": "전체 분석 실패"}
+        return {"results": [], "analyzed_at": analyzed_at, "green": 0, "wait": 0, "stop": 0, "error": "전체 분석 실패"}
 
     results.sort(key=lambda x: x["score"], reverse=True)
     gc = sum(1 for r in results if r["entry_key"] == "green")
     wc = sum(1 for r in results if r["entry_key"] == "wait")
     sc = sum(1 for r in results if r["entry_key"] == "stop")
 
-    save_data = {"analyzed_at": analyzed_at, "total": len(results),
-                 "green": gc, "wait": wc, "stop": sc, "results": results}
+    save_data = {"analyzed_at": analyzed_at, "total": len(results), "green": gc, "wait": wc, "stop": sc, "results": results}
     ts = datetime.now(KST).strftime(HISTORY_TS_FMT)
     try:
         with open(HISTORY_DIR / f"{ts}.json", "w", encoding="utf-8") as f:
@@ -1038,20 +1064,16 @@ def analyze() -> dict:
 
 
 # ═══════════════════════════════════════════════════════════════════
-# 메인: 선행 신호 분석 (batch 필터 → 개별 정밀 분석)
+# 메인: 선행 신호 분석
 # ═══════════════════════════════════════════════════════════════════
 
 def analyze_presignal(universe: str = "sp500") -> dict:
-    """
-    universe: "sp500" | "sox" | "sp500+sox"
-    """
-    uni       = UNIVERSE_MAP.get(universe, UNIVERSE_MAP["sp500"])
-    symbols   = uni["symbols"]
-    uni_name  = uni["name"]
+    uni      = UNIVERSE_MAP.get(universe, UNIVERSE_MAP["sp500"])
+    symbols  = uni["symbols"]
+    uni_name = uni["name"]
     analyzed_at = datetime.now(KST).strftime("%Y-%m-%d %H:%M:%S (KST)")
     log.info("═══ 선행 신호 스캔 시작 [%s]: %s ═══", uni_name, analyzed_at)
 
-    # 1차 batch 필터링
     scan_targets = _get_presignal_candidates(symbols)
     log.info("선행 신호 정밀 스캔: %d 종목", len(scan_targets))
 
@@ -1082,11 +1104,9 @@ def analyze_presignal(universe: str = "sp500") -> dict:
     wtc = sum(1 for r in results if r["grade_key"] == "wait")
     wkc = sum(1 for r in results if r["grade_key"] == "weak")
 
-    save_data = {
-        "analyzed_at": analyzed_at, "scan_type": "presignal", "universe": uni_name,
-        "scanned_total": len(results), "strong": stc, "watch": wac, "wait": wtc, "weak": wkc,
-        "results": top_results,
-    }
+    save_data = {"analyzed_at": analyzed_at, "scan_type": "presignal", "universe": uni_name,
+                 "scanned_total": len(results), "strong": stc, "watch": wac, "wait": wtc, "weak": wkc,
+                 "results": top_results}
     ts = datetime.now(KST).strftime(HISTORY_TS_FMT)
     try:
         with open(PRESIGNAL_DIR / f"{ts}.json", "w", encoding="utf-8") as f:
@@ -1109,221 +1129,18 @@ def analyze_presignal(universe: str = "sp500") -> dict:
     log.info("스캔 %d종목 | 🔥 %d | ✅ %d | ⏳ %d | ⬜ %d", len(results), stc, wac, wtc, wkc)
     return save_data
 
+
 # ═══════════════════════════════════════════════════════════════════
-# 확신 종목 스캐너 — 7개 독립 필터 + 오버랩 보너스
+# 메인: 확신 종목 분석
 # ═══════════════════════════════════════════════════════════════════
-
-CONVICTION_DIR = pathlib.Path("conviction")
-CONVICTION_DIR.mkdir(exist_ok=True)
-CONVICTION_MAX_RESULTS = 20
-
-
-def _compute_conviction_score(ind: dict) -> dict:
-    """
-    7개 독립 필터를 평가하고 오버랩 보너스를 적용한다.
-    필터: TTM Squeeze, RSI 반등, MACD 전환, 골든크로스 임박,
-          스마트머니 축적, Stoch 탈출, BB 하단 반등
-    """
-    filters_hit = 0
-    raw = 0
-    signals = []
-    price = ind.get("price", 0)
-
-    # ── 필터 1: TTM Squeeze (변동성 수축) ──
-    bb_pct = ind.get("bb_width_percentile", 50)
-    atr_pct = ind.get("atr_percentile", 50)
-    squeeze_avg = (bb_pct + atr_pct) / 2
-    if squeeze_avg <= 15:
-        raw += 18
-        filters_hit += 1
-        signals.append("🔥 TTM Squeeze: 극도의 변동성 수축 (폭발 임박)")
-    elif squeeze_avg <= 25:
-        raw += 12
-        filters_hit += 1
-        signals.append("✅ TTM Squeeze: 변동성 수축 진행 중")
-    elif squeeze_avg <= 35:
-        raw += 6
-        signals.append("⏳ TTM Squeeze: 약한 수축")
-
-    # ── 필터 2: RSI 바닥 반등 ──
-    rsi = ind.get("rsi", 50)
-    if 30 <= rsi <= 40:
-        raw += 16
-        filters_hit += 1
-        signals.append("🔥 RSI 바닥 반등 (30-40)")
-    elif 25 <= rsi < 30:
-        raw += 12
-        filters_hit += 1
-        signals.append("✅ RSI 깊은 과매도 (반등 대기)")
-    elif 40 < rsi <= 45:
-        raw += 6
-        signals.append("⏳ RSI 약세 탈출 중")
-
-    # ── 필터 3: MACD 히스토그램 반전 ──
-    if ind.get("macd_cross_up"):
-        raw += 16
-        filters_hit += 1
-        signals.append("🔥 MACD 히스토그램 음→양 전환")
-    elif ind.get("macd_approaching_zero"):
-        raw += 10
-        filters_hit += 1
-        signals.append("✅ MACD 제로라인 돌파 임박")
-
-    # ── 필터 4: 골든크로스 임박/발생 ──
-    if ind.get("golden_cross"):
-        raw += 16
-        filters_hit += 1
-        signals.append("🔥 골든크로스 발생!")
-    elif ind.get("golden_cross_approaching"):
-        gap = ind.get("ma50_ma200_gap", 0)
-        raw += 12
-        filters_hit += 1
-        signals.append(f"✅ 골든크로스 임박 (MA 갭 {gap}%)")
-
-    # ── 필터 5: 스마트머니 축적 (거래량↑ 가격 미변동) ──
-    vr = ind.get("volume_ratio", 1.0)
-    chg = abs(ind.get("change_1d", 0))
-    if vr >= 2.0 and chg < 2.0:
-        raw += 14
-        filters_hit += 1
-        signals.append(f"🔥 스마트머니 축적: 거래량 {vr}x + 가격 미반응")
-    elif vr >= 1.5 and chg < 1.5:
-        raw += 8
-        filters_hit += 1
-        signals.append(f"✅ 거래량 증가({vr}x) + 가격 안정")
-
-    # ── 필터 6: Stochastic 과매도 탈출 ──
-    sk = ind.get("stoch_k", 50)
-    sd = ind.get("stoch_d", 50)
-    if 20 < sk <= 35 and sk > sd:
-        raw += 12
-        filters_hit += 1
-        signals.append("✅ Stoch 과매도 탈출 (%K > %D)")
-    elif sk <= 20:
-        raw += 5
-        signals.append("⏳ Stoch 과매도 (반등 미확인)")
-
-    # ── 필터 7: 볼린저 하단 바운스 ──
-    bbl = ind.get("bb_lower", 0)
-    if bbl > 0 and price > 0:
-        dist = (price - bbl) / price * 100
-        if 0 < dist <= 1.5:
-            raw += 12
-            filters_hit += 1
-            signals.append("🔥 볼린저 하단 근접 반등")
-        elif dist <= 0:
-            raw += 6
-            signals.append("⏳ 볼린저 하단 이탈 (바닥 탐색)")
-        elif dist <= 3.0:
-            raw += 4
-            signals.append("⏳ 볼린저 하단 접근 중")
-
-    # ── 오버랩 보너스 ──
-    if filters_hit >= 4:
-        bonus = 1.6
-        signals.insert(0, f"⭐ {filters_hit}개 필터 동시 충족 → 1.6x 보너스")
-    elif filters_hit >= 3:
-        bonus = 1.4
-        signals.insert(0, f"🔥 {filters_hit}개 필터 동시 충족 → 1.4x 보너스")
-    elif filters_hit >= 2:
-        bonus = 1.2
-        signals.insert(0, f"✅ {filters_hit}개 필터 동시 충족 → 1.2x 보너스")
-    else:
-        bonus = 1.0
-
-    raw = raw * bonus
-
-    # ── 감점 ──
-    c1d = ind.get("change_1d", 0)
-    if c1d > 5:
-        raw -= 20
-        signals.append("⚠️ 당일 5%+ 상승 (이미 움직임 → 후행 위험)")
-    elif c1d > 3:
-        raw -= 10
-        signals.append("⚠️ 당일 3%+ 상승")
-
-    if rsi > 70:
-        raw -= 20
-        signals.append("⚠️ RSI 과열 (>70) → 확신 부적합")
-    elif rsi > 60:
-        raw -= 8
-        signals.append("⚠️ RSI 중립 상단 (>60)")
-
-    if ind.get("dead_cross"):
-        raw -= 15
-        signals.append("⚠️ 데드크로스 발생 → 하방 압력")
-
-    if ind.get("cloud_status_raw") == "below":
-        raw -= 5
-        signals.append("⚠️ 구름 아래 위치")
-
-    # ── 최종 점수 ──
-    score = max(0, min(100, int(round(raw))))
-
-    if score >= 70:
-        grade = "⭐ 확신"
-        grade_key = "conviction"
-    elif score >= 50:
-        grade = "🔥 유력"
-        grade_key = "strong"
-    elif score >= 30:
-        grade = "✅ 관심"
-        grade_key = "watch"
-    else:
-        grade = "⬜ 미달"
-        grade_key = "weak"
-
-    return {
-        "conviction_score": score,
-        "conviction_raw": round(raw, 1),
-        "conviction_grade": grade,
-        "grade_key": grade_key,
-        "filters_hit": filters_hit,
-        "overlap_bonus": bonus,
-        "conviction_signals": signals,
-    }
-
-
-def analyze_ticker_conviction(ticker: str) -> dict | None:
-    """개별 종목 확신 분석"""
-    try:
-        ind = compute_indicators(ticker)
-        if ind is None:
-            return None
-        scoring = _compute_conviction_score(ind)
-        return {
-            "ticker": ticker,
-            "company": ticker,
-            "price": ind["price"],
-            "change_1d": ind["change_1d"],
-            **{k: ind.get(k, d) for k, d in [
-                ("rsi", 50.0), ("macd_histogram", 0), ("stoch_k", 50.0), ("stoch_d", 50.0),
-                ("volume_ratio", 1.0), ("bb_width", 0), ("bb_width_percentile", 50),
-                ("atr", 0), ("atr_percentile", 50), ("ma_trend", ""), ("ma_trend_raw", "bearish"),
-                ("golden_cross", False), ("golden_cross_approaching", False),
-                ("dead_cross", False), ("ma50_ma200_gap", 0),
-                ("macd_cross_up", False), ("macd_approaching_zero", False),
-                ("cloud_status", ""), ("cloud_status_raw", "inside"),
-                ("bb_lower", 0), ("target_1", 0), ("target_2", 0), ("stop_loss", 0),
-            ]},
-            **scoring,
-        }
-    except Exception as e:
-        log.error("[%s] 확신 분석 오류: %s", ticker, e, exc_info=True)
-        return None
-
 
 def analyze_conviction(universe: str = "sp500+sox") -> dict:
-    """
-    확신 종목 스캐너: 7개 독립 필터 + 오버랩 보너스
-    """
-    uni = UNIVERSE_MAP.get(universe, UNIVERSE_MAP["sp500+sox"])
-    symbols = uni["symbols"]
+    uni      = UNIVERSE_MAP.get(universe, UNIVERSE_MAP["sp500+sox"])
+    symbols  = uni["symbols"]
     uni_name = uni["name"]
     analyzed_at = datetime.now(KST).strftime("%Y-%m-%d %H:%M:%S (KST)")
     log.info("═══ 확신 스캐너 시작 [%s]: %s ═══", uni_name, analyzed_at)
 
-    # 1차 batch 필터링 (presignal과 동일 로직)
     scan_targets = _get_presignal_candidates(symbols)
     log.info("확신 스캐너 정밀 스캔: %d 종목", len(scan_targets))
 
@@ -1337,18 +1154,14 @@ def analyze_conviction(universe: str = "sp500+sox") -> dict:
                 log.info("확신 스캔 진행: %d/%d", done, len(scan_targets))
             try:
                 r = f.result()
-                if r:
-                    results.append(r)
+                if r: results.append(r)
             except Exception as e:
                 log.error("[%s] 확신 future 오류: %s", fmap[f], e)
 
     if not results:
-        return {
-            "results": [], "analyzed_at": analyzed_at, "universe": uni_name,
-            "conviction": 0, "strong": 0, "watch": 0, "weak": 0,
-            "scanned_total": len(symbols), "scan_type": "conviction",
-            "error": "전체 분석 실패",
-        }
+        return {"results": [], "analyzed_at": analyzed_at, "universe": uni_name,
+                "conviction": 0, "strong": 0, "watch": 0, "weak": 0,
+                "scanned_total": len(symbols), "scan_type": "conviction", "error": "전체 분석 실패"}
 
     results.sort(key=lambda x: x["conviction_score"], reverse=True)
     top_results = results[:CONVICTION_MAX_RESULTS]
@@ -1358,18 +1171,9 @@ def analyze_conviction(universe: str = "sp500+sox") -> dict:
     wc = sum(1 for r in results if r["grade_key"] == "watch")
     wk = sum(1 for r in results if r["grade_key"] == "weak")
 
-    save_data = {
-        "analyzed_at": analyzed_at,
-        "scan_type": "conviction",
-        "universe": uni_name,
-        "scanned_total": len(results),
-        "conviction": cc,
-        "strong": sc,
-        "watch": wc,
-        "weak": wk,
-        "results": top_results,
-    }
-
+    save_data = {"analyzed_at": analyzed_at, "scan_type": "conviction", "universe": uni_name,
+                 "scanned_total": len(results), "conviction": cc, "strong": sc, "watch": wc, "weak": wk,
+                 "results": top_results}
     ts = datetime.now(KST).strftime(HISTORY_TS_FMT)
     try:
         with open(CONVICTION_DIR / f"{ts}.json", "w", encoding="utf-8") as f:
@@ -1378,33 +1182,31 @@ def analyze_conviction(universe: str = "sp500+sox") -> dict:
     except Exception as e:
         log.error("확신 종목 저장 오류: %s", e)
 
-    # 텔레그램 전송
     top5 = top_results[:5]
-    lines = [
-        f"<b>🎯 확신 종목 스캔 [{_escape_html(uni_name)}]</b>",
-        f"🕐 {_escape_html(analyzed_at)}",
-        f"스캔 {len(results)}종목 | ⭐{cc} 🔥{sc} ✅{wc} ⬜{wk}",
-        "",
-    ]
+    lines = [f"<b>🎯 확신 종목 스캔 [{_escape_html(uni_name)}]</b>",
+             f"🕐 {_escape_html(analyzed_at)}",
+             f"스캔 {len(results)}종목 | ⭐{cc} 🔥{sc} ✅{wc} ⬜{wk}", ""]
     for i, r in enumerate(top5, 1):
         sigs = " | ".join(r.get("conviction_signals", [])[:3])
-        lines.append(
-            f"{i}. <b>{_escape_html(r['ticker'])}</b> {_escape_html(r['conviction_grade'])} "
-            f"점수:{r['conviction_score']} (필터 {r['filters_hit']}개, {r['overlap_bonus']}x) "
-            f"| ${r['price']} ({r['change_1d']:+.1f}%)\n"
-            f"   → {_escape_html(sigs)}"
-        )
+        lines.append(f"{i}. <b>{_escape_html(r['ticker'])}</b> {_escape_html(r['conviction_grade'])} "
+                     f"점수:{r['conviction_score']} (필터 {r['filters_hit']}개, {r['overlap_bonus']}x) "
+                     f"| ${r['price']} ({r['change_1d']:+.1f}%)\n"
+                     f"   → {_escape_html(sigs)}")
     send_telegram("\n".join(lines))
 
     log.info("═══ 확신 스캐너 완료 [%s] ═══", uni_name)
     log.info("스캔 %d종목 | ⭐ %d | 🔥 %d | ✅ %d | ⬜ %d", len(results), cc, sc, wc, wk)
     return save_data
 
+
+# ═══════════════════════════════════════════════════════════════════
+# CLI
+# ═══════════════════════════════════════════════════════════════════
+
 if __name__ == "__main__":
     import sys
     mode = sys.argv[1] if len(sys.argv) > 1 else "momentum"
-    uni = sys.argv[2] if len(sys.argv) > 2 else "sp500+sox"
-
+    uni  = sys.argv[2] if len(sys.argv) > 2 else "sp500+sox"
     if mode == "presignal":
         analyze_presignal(uni)
     elif mode == "conviction":
