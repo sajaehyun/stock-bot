@@ -42,3 +42,32 @@ python app.py
   - Build Command: `pip install -r requirements.txt`
   - Start Command: `gunicorn app:app` (또는 Procfile 사용)
   - 환경 변수: `TELEGRAM_TOKEN`, `CHAT_ID` 설정 필수.
+
+---
+
+# CHANGELOG
+
+## 2026-03-26
+
+### longterm.py
+- `analyze_earnings()` 추가 (어닝 서프라이즈, 연속비트, 가이던스, 어닝후 반응)
+- `analyze_sector_comparison()`, `analyze_buyback()`, `analyze_options()` 추가
+- `sector` → `sector_comp` 변수명 충돌 수정
+- `total_score`, `all_signals`에 4개 새 점수 통합
+- 텔레그램 메시지에 어닝/섹터/바이백/옵션 점수 포함
+
+### bot.py
+- `_quick_earnings_check(ticker)` 추가 — 어닝 임박, 서프라이즈, 어닝후 반응
+- `_quick_options_check(ticker)` 추가 — 풋/콜 비율
+- `compute_score_and_status`, `compute_presignal_score`에 어닝/옵션 점수 반영
+- `analyze_ticker`, `analyze_ticker_presignal` return에 earnings_near, days_to_earnings, last_surprise_pct, put_call_ratio 추가
+
+### dashboard.html
+- 모멘텀/선행 탭에 어닝·서프라이즈·P/C 메트릭 UI 추가
+- Jinja2 `.get()` 호환성 수정 6곳
+- 분석 버튼 로딩 표시 + 403 에러 처리 JS 추가
+
+### 미해결
+- [ ] Render에 `FLASK_SECRET_KEY` 환경변수 추가 (403 원인)
+- [ ] 환경변수 추가 후 모멘텀 실행 테스트
+- [ ] Finnhub API 키 권한 확인 (403 다수 발생)

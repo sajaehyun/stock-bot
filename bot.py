@@ -14,7 +14,8 @@ import logging
 import inspect
 import pathlib
 from datetime import datetime, timedelta, timezone
-from concurrent.futures import ThreadPoolExecutor, as_completed
+from concurrent.futures import ThreadPoolExecutor, as_completed, TimeoutError as FuturesTimeoutError
+
 
 import requests
 import numpy as np
@@ -610,8 +611,16 @@ def compute_score_and_status(ind: dict, fv: dict, ticker: str = "") -> dict:
     if fc >= 5: raw += 5; signals.append(f"✅ Finviz +{fc}%")
     # ── 어닝/옵션 단기 반영 ──
     if ticker:
-        eq = _quick_earnings_check(ticker)
-        oq = _quick_options_check(ticker)
+        _pool = ThreadPoolExecutor(max_workers=1)
+        try:
+            eq = _pool.submit(_quick_earnings_check, ticker).result(timeout=5)
+        except Exception:
+            eq = {"earnings_near":False,"days_to_earnings":None,"last_beat":None,"last_surprise_pct":None,"post_reaction_1d":None,"earnings_signals":[],"earnings_adj":0}
+        try:
+            oq = _pool.submit(_quick_options_check, ticker).result(timeout=5)
+        except Exception:
+            oq = {"put_call_ratio":None,"options_signals":[],"options_adj":0}
+        _pool.shutdown(wait=False)
         raw += eq["earnings_adj"]
         raw += oq["options_adj"]
         signals.extend(eq["earnings_signals"])
@@ -807,16 +816,26 @@ def compute_presignal_score(ind: dict, ticker: str = "") -> dict:
     elif c1d > 3:    raw -= 8;  signals.append("⚠️ 당일 3%+ 상승")
     if rsi > 70:     raw -= 15; signals.append("⚠️ RSI 과열 → 선행 부적합")
     elif rsi > 60:   raw -= 5;  signals.append("⚠️ RSI 중립 상단")
-    # ── 어닝/옵션 선행 반영 ──
+    # ── 어닝/옵션 단기 반영 ──
     if ticker:
-        eq = _quick_earnings_check(ticker)
-        oq = _quick_options_check(ticker)
+        _pool = ThreadPoolExecutor(max_workers=1)
+        try:
+            eq = _pool.submit(_quick_earnings_check, ticker).result(timeout=5)
+        except Exception:
+            eq = {"earnings_near":False,"days_to_earnings":None,"last_beat":None,"last_surprise_pct":None,"post_reaction_1d":None,"earnings_signals":[],"earnings_adj":0}
+        try:
+            oq = _pool.submit(_quick_options_check, ticker).result(timeout=5)
+        except Exception:
+            oq = {"put_call_ratio":None,"options_signals":[],"options_adj":0}
+        _pool.shutdown(wait=False)
         raw += eq["earnings_adj"]
         raw += oq["options_adj"]
         signals.extend(eq["earnings_signals"])
         signals.extend(oq["options_signals"])
         ind["_earnings"] = eq
         ind["_options"] = oq
+
+
 
     score = max(0, min(100, raw))
     if score >= 60:   g = "🔥 강력"; gk = "strong"
