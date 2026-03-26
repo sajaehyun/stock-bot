@@ -494,7 +494,168 @@ def analyze_long_trend(ticker_obj):
         LOG.warning(f"장기 추세 분석 실패: {e}")
 
     return result
+# ── 7. 어닝 & 가이던스 분석 ───────────────────────────
+def analyze_earnings(ticker_str, ticker_obj):
+    """최근 어닝 서프라이즈, 가이던스 방향, 연속 비트 횟수 분석"""
+    result = {
+        "earnings_history": [],
+        "consecutive_beats": 0,
+        "last_surprise_pct": None,
+        "guidance_direction": None,  # "raised", "maintained", "lowered", "none"
+        "next_earnings_date": None,
+        "earnings_score": 0,
+        "signals": [],
+    }
+    try:
+        # ── 1) 어닝 서프라이즈 (yfinance) ──
+        earnings_hist = ticker_obj.earnings_dates
+        if earnings_hist is not None and not earnings_hist.empty:
+            # 과거 실적만 (Reported EPS가 있는 것)
+            past = earnings_hist.dropna(subset=["Reported EPS"])
+            if not past.empty:
+                consecutive = 0
+                for idx, row in past.head(8).iterrows():
+                    reported = row.get("Reported EPS")
+                    estimate = row.get("EPS Estimate")
+                    if reported is not None and estimate is not None:
+                        try:
+                            rep = float(reported)
+                            est = float(estimate)
+                            if est != 0:
+                                surprise_pct = round((rep - est) / abs(est) * 100, 1)
+                            else:
+                                surprise_pct = 0.0
 
+                            result["earnings_history"].append({
+                                "date": str(idx)[:10],
+                                "reported": rep,
+                                "estimate": est,
+                                "surprise_pct": surprise_pct,
+                                "beat": rep > est,
+                            })
+
+                            if rep > est:
+                                consecutive += 1
+                            else:
+                                break  # 연속 비트 끊김
+                        except (ValueError, TypeError):
+                            break
+
+                result["consecutive_beats"] = consecutive
+
+                if result["earnings_history"]:
+                    result["last_surprise_pct"] = result["earnings_history"][0]["surprise_pct"]
+
+            # 다음 어닝 날짜 (미래)
+            future = earnings_hist[earnings_hist["Reported EPS"].isna()]
+            if not future.empty:
+                result["next_earnings_date"] = str(future.index[0])[:10]
+
+        # ── 2) 어닝 서프라이즈 점수 ──
+        beats = result["consecutive_beats"]
+        if beats >= 4:
+            result["earnings_score"] += 20
+            result["signals"].append(f"🔥 {beats}분기 연속 어닝 비트!")
+        elif beats >= 2:
+            result["earnings_score"] += 10
+            result["signals"].append(f"✅ {beats}분기 연속 어닝 비트")
+        elif beats == 1:
+            result["earnings_score"] += 5
+            result["signals"].append("✅ 최근 어닝 비트")
+
+        # 서프라이즈 크기
+        last_sp = result["last_surprise_pct"]
+        if last_sp is not None:
+            if last_sp > 20:
+                result["earnings_score"] += 10
+                result["signals"].append(f"💥 어닝 서프라이즈 +{last_sp}% (대폭 상회)")
+            elif last_sp > 5:
+                result["earnings_score"] += 5
+                result["signals"].append(f"📈 어닝 서프라이즈 +{last_sp}%")
+            elif last_sp < -10:
+                result["earnings_score"] -= 10
+                result["signals"].append(f"📉 어닝 미스 {last_sp}%")
+            elif last_sp < 0:
+                result["earnings_score"] -= 5
+                result["signals"].append(f"⚠️ 어닝 소폭 미스 {last_sp}%")
+
+        # ── 3) 가이던스 분석 (Finnhub 또는 yfinance info) ──
+        info = ticker_obj.info or {}
+
+        # 방법 A: Forward EPS vs Trailing EPS로 가이던스 방향 추정
+        forward_eps = info.get("forwardEps")
+        trailing_eps = info.get("trailingEps")
+
+        if forward_eps is not None and trailing_eps is not None and trailing_eps != 0:
+            growth = (forward_eps - trailing_eps) / abs(trailing_eps) * 100
+            if growth > 15:
+                result["guidance_direction"] = "raised"
+                result["earnings_score"] += 10
+                result["signals"].append(f"🚀 가이던스 상향 추정 (Forward EPS +{growth:.1f}%)")
+            elif growth > 0:
+                result["guidance_direction"] = "maintained"
+                result["earnings_score"] += 5
+                result["signals"].append(f"✅ 가이던스 유지/소폭 상향 (+{growth:.1f}%)")
+            elif growth > -10:
+                result["guidance_direction"] = "maintained"
+                result["signals"].append(f"⏳ 가이던스 보합 ({growth:.1f}%)")
+            else:
+                result["guidance_direction"] = "lowered"
+                result["earnings_score"] -= 10
+                result["signals"].append(f"⚠️ 가이던스 하향 추정 ({growth:.1f}%)")
+
+        # 방법 B: Finnhub EPS surprise API 보충
+        if FINNHUB_KEY and not result["earnings_history"]:
+            try:
+                url = f"https://finnhub.io/api/v1/stock/earnings?symbol={ticker_str}&limit=4&token={FINNHUB_KEY}"
+                resp = requests.get(url, timeout=5)
+                if resp.status_code == 200:
+                    fh_earnings = resp.json()
+                    consecutive_fh = 0
+                    for e in fh_earnings:
+                        actual = e.get("actual")
+                        estimate = e.get("estimate")
+                        if actual is not None and estimate is not None:
+                            beat = actual > estimate
+                            sp = round((actual - estimate) / abs(estimate) * 100, 1) if estimate != 0 else 0
+                            result["earnings_history"].append({
+                                "date": e.get("period", ""),
+                                "reported": actual,
+                                "estimate": estimate,
+                                "surprise_pct": sp,
+                                "beat": beat,
+                            })
+                            if beat:
+                                consecutive_fh += 1
+                            else:
+                                break
+                    if consecutive_fh > result["consecutive_beats"]:
+                        result["consecutive_beats"] = consecutive_fh
+            except Exception:
+                pass
+
+        # 방법 C: Finnhub Revenue Estimate (가이던스 구체화)
+        if FINNHUB_KEY:
+            try:
+                url = f"https://finnhub.io/api/v1/stock/revenue-estimate?symbol={ticker_str}&freq=quarterly&token={FINNHUB_KEY}"
+                resp = requests.get(url, timeout=5)
+                if resp.status_code == 200:
+                    rev_data = resp.json().get("data", [])
+                    if len(rev_data) >= 2:
+                        current_est = rev_data[0].get("revenueAvg", 0)
+                        prev_est = rev_data[1].get("revenueAvg", 0)
+                        if prev_est and current_est:
+                            rev_growth = (current_est - prev_est) / abs(prev_est) * 100
+                            if rev_growth > 10:
+                                result["earnings_score"] += 5
+                                result["signals"].append(f"📊 다음 분기 매출 추정 +{rev_growth:.1f}% (성장)")
+            except Exception:
+                pass
+
+    except Exception as e:
+        LOG.warning(f"어닝/가이던스 분석 실패: {e}")
+
+    return result
 
 # ── 종합 분석 ─────────────────────────────────────────
 def analyze_ticker_longterm(ticker_str):
@@ -509,37 +670,37 @@ def analyze_ticker_longterm(ticker_str):
         news = analyze_news(ticker_str, t)
         analyst = analyze_analyst(t)
         trend = analyze_long_trend(t)
+        earnings = analyze_earnings(ticker_str, t)  # ★ 추가
 
-        # 종합 점수 (100점 만점 스케일)
         total_score = (
             inst["inst_score"] +
             insider["insider_score"] +
             fundamental["fundamental_score"] +
             news["news_score"] +
             analyst["analyst_score"] +
-            trend["trend_score"]
+            trend["trend_score"] +
+            earnings["earnings_score"]  # ★ 추가
         )
 
-        # 등급
-        if total_score >= 60:
+        if total_score >= 70:
             grade = "🔥 강력 매수"
-        elif total_score >= 40:
+        elif total_score >= 50:
             grade = "✅ 매수"
-        elif total_score >= 20:
+        elif total_score >= 25:
             grade = "📊 관심"
         elif total_score >= 0:
             grade = "⏳ 관망"
         else:
             grade = "❌ 주의"
 
-        # 모든 시그널 합치기
         all_signals = (
             inst["signals"] +
             insider["signals"] +
             fundamental["signals"] +
             news["signals"] +
             analyst["signals"] +
-            trend["signals"]
+            trend["signals"] +
+            earnings["signals"]  # ★ 추가
         )
 
         current_price = info.get("currentPrice") or info.get("regularMarketPrice", 0)
@@ -562,6 +723,7 @@ def analyze_ticker_longterm(ticker_str):
                 "news": news["news_score"],
                 "analyst": analyst["analyst_score"],
                 "trend": trend["trend_score"],
+                "earnings": earnings["earnings_score"],  # ★ 추가
             },
             "signals": all_signals,
             "institutional": {
@@ -596,6 +758,14 @@ def analyze_ticker_longterm(ticker_str):
                 "ma200_gap": trend["ma200_gap_pct"],
                 "above_50ma": trend["above_50ma"],
                 "weekly_rsi": trend["weekly_rsi"],
+            },
+            # ★ 어닝 섹션 추가
+            "earnings": {
+                "consecutive_beats": earnings["consecutive_beats"],
+                "last_surprise_pct": earnings["last_surprise_pct"],
+                "guidance_direction": earnings["guidance_direction"],
+                "next_earnings_date": earnings["next_earnings_date"],
+                "history": earnings["earnings_history"][:4],
             },
         }
 
@@ -667,9 +837,10 @@ def _send_longterm_telegram(results, universe, total):
         company = r["company"][:15]
         price = r.get("price", 0)
 
-        # 세부 점수
+        # ★ 이 줄이 수정된 부분 (어닝 추가)
         sc = r["scores"]
-        detail = f"기관{sc['institutional']}|펀더{sc['fundamental']}|뉴스{sc['news']}|애널{sc['analyst']}|추세{sc['trend']}"
+        detail = (f"기관{sc['institutional']}|펀더{sc['fundamental']}|뉴스{sc['news']}"
+                  f"|애널{sc['analyst']}|추세{sc['trend']}|어닝{sc.get('earnings', 0)}")
 
         target = r["analyst"].get("target_mean")
         target_str = f" → 목표${target:.0f}" if target else ""

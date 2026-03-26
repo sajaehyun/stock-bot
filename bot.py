@@ -54,8 +54,8 @@ SP500_SYMBOLS = [
     "TMO","ACN","MCD","ADBE","LIN","DHR","CSCO","ABT","TXN","NEE",
     "WFC","PM","INTU","AMGN","MS","RTX","SPGI","HON","GE","CAT",
     "ISRG","BLK","VRTX","AXP","SYK","BKNG","PLD","TJX","GILD","ADI",
-    "MDLZ","MMC","CB","MO","SO","DUK","CL","BSX","EOG","ITW",
-    "REGN","CME","PH","SLB","ZTS","MCO","USB","FI","HCA","BDX",
+    "MDLZ","MRSH","CB","MO","SO","DUK","CL","BSX","EOG","ITW",
+    "REGN","CME","PH","SLB","ZTS","MCO","USB","FISV","HCA","BDX",
     "CI","ICE","NOC","GD","MET","TGT","F","GM","UBER","NOW",
     "PANW","SNOW","COIN","PLTR","ARM","SMCI","DELL","HPQ","MU","QCOM",
 ]

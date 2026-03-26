@@ -1,0 +1,3036 @@
+{
+  "timestamp": "2026-03-26_102035",
+  "universe": "sp500+sox",
+  "total_scanned": 122,
+  "results_count": 20,
+  "results": [
+    {
+      "ticker": "MU",
+      "company": "Micron Technology, Inc.",
+      "sector": "Technology",
+      "industry": "Semiconductors",
+      "price": 382.09,
+      "total_score": 159,
+      "grade": "🔥 강력 매수",
+      "scores": {
+        "institutional": 18,
+        "insider": 0,
+        "fundamental": 50,
+        "news": 10,
+        "analyst": 20,
+        "trend": 21,
+        "earnings": 40
+      },
+      "signals": [
+        "🏦 기관 보유 82.4% (매우 높음)",
+        "⭐ Vanguard Group Inc 보유 중",
+        "💰 저PER (3.9)",
+        "📈 매출 성장 196.3%",
+        "💹 이익 성장 756.0%",
+        "🛡️ 낮은 부채비율 (15%)",
+        "💎 높은 이익률 (41.5%)",
+        "⭐ 높은 ROE (39.8%)",
+        "📰 뉴스 긍정적 (+3/-1)",
+        "🎯 애널리스트: Buy",
+        "🚀 목표가 상승여력 37.3%",
+        "✅ 200일선 위 (61.9%)",
+        "✅ 골든크로스 상태 (50일 > 200일)",
+        "📊 52주 고점 대비 -17.2%",
+        "🔥 8분기 연속 어닝 비트!",
+        "💥 어닝 서프라이즈 +35.7% (대폭 상회)",
+        "🚀 가이던스 상향 추정 (Forward EPS +364.6%)"
+      ],
+      "institutional": {
+        "pct": 0.82448,
+        "top_holders": [
+          {
+            "name": "Vanguard Group Inc",
+            "shares": 106608094,
+            "pct": 0.0947
+          },
+          {
+            "name": "Blackrock Inc.",
+            "shares": 100701543,
+            "pct": 0.089499995
+          },
+          {
+            "name": "Capital World Investors",
+            "shares": 58249125,
+            "pct": 0.051799998
+          }
+        ]
+      },
+      "fundamentals": {
+        "pe": 18.014616,
+        "forward_pe": 3.8772619,
+        "peg": null,
+        "revenue_growth": 1.963,
+        "earnings_growth": 7.56,
+        "debt_to_equity": 14.902,
+        "profit_margin": 0.41486,
+        "roe": 0.39823002,
+        "dividend_yield": 0.16
+      },
+      "analyst": {
+        "recommendation": "buy",
+        "target_mean": 524.725,
+        "target_high": 750.0,
+        "num_analysts": 40
+      },
+      "news_summary": {
+        "positive": 3,
+        "negative": 1,
+        "neutral": 6,
+        "recent": [
+          {
+            "title": "Dow Jones Futures Fall; Stock Market Fades Amid Iran War Deal Hopes, Doubts",
+            "sentiment": "positive",
+            "date": "2026-03-26",
+            "source": "Investor's Business Daily"
+          },
+          {
+            "title": "Micron Technology's Earnings Skyrocketed 771% Last Quarter. This Is a Key Reason Why Its Growth Was ",
+            "sentiment": "positive",
+            "date": "2026-03-25",
+            "source": "Motley Fool"
+          },
+          {
+            "title": "Why Micron (MU) Stock Is Trading Lower Today",
+            "sentiment": "neutral",
+            "date": "2026-03-25",
+            "source": "StockStory"
+          },
+          {
+            "title": "US Equity Indexes Off Session Highs, Crude Oil Pares Losses as Iran Makes Counteroffer to End War",
+            "sentiment": "negative",
+            "date": "2026-03-25",
+            "source": "MT Newswires"
+          },
+          {
+            "title": "Micron Is Loved by Analysts More Than Ever. It Hasn’t Helped the Stock—Yet.",
+            "sentiment": "neutral",
+            "date": "2026-03-25",
+            "source": "Barrons.com"
+          }
+        ]
+      },
+      "trend": {
+        "above_200ma": "True",
+        "ma200_gap": 61.94523083161876,
+        "above_50ma": "False",
+        "weekly_rsi": 66.12824534112194
+      },
+      "earnings": {
+        "consecutive_beats": 8,
+        "last_surprise_pct": 35.7,
+        "guidance_direction": "raised",
+        "next_earnings_date": "2026-06-24",
+        "history": [
+          {
+            "date": "2026-03-18",
+            "reported": 12.2,
+            "estimate": 8.99,
+            "surprise_pct": 35.7,
+            "beat": true
+          },
+          {
+            "date": "2025-12-17",
+            "reported": 4.78,
+            "estimate": 3.96,
+            "surprise_pct": 20.7,
+            "beat": true
+          },
+          {
+            "date": "2025-09-23",
+            "reported": 2.83,
+            "estimate": 2.69,
+            "surprise_pct": 5.2,
+            "beat": true
+          },
+          {
+            "date": "2025-06-25",
+            "reported": 1.91,
+            "estimate": 1.59,
+            "surprise_pct": 20.1,
+            "beat": true
+          }
+        ]
+      }
+    },
+    {
+      "ticker": "LRCX",
+      "company": "Lam Research Corporation",
+      "sector": "Technology",
+      "industry": "Semiconductor Equipment & Materials",
+      "price": 233.45,
+      "total_score": 148,
+      "grade": "🔥 강력 매수",
+      "scores": {
+        "institutional": 18,
+        "insider": 0,
+        "fundamental": 40,
+        "news": 15,
+        "analyst": 15,
+        "trend": 25,
+        "earnings": 35
+      },
+      "signals": [
+        "🏦 기관 보유 88.8% (매우 높음)",
+        "⭐ Blackrock Inc. 보유 중",
+        "📈 매출 성장 22.1%",
+        "💹 이익 성장 37.0%",
+        "🛡️ 낮은 부채비율 (44%)",
+        "💎 높은 이익률 (30.2%)",
+        "⭐ 높은 ROE (65.6%)",
+        "📰 뉴스 매우 긍정적 (+4/-0)",
+        "🎯 애널리스트: Buy",
+        "📈 목표가 상승여력 17.8%",
+        "✅ 200일선 위 (51.3%)",
+        "✅ 골든크로스 상태 (50일 > 200일)",
+        "🔝 52주 고점 근접 (-6.3%)",
+        "🔥 8분기 연속 어닝 비트!",
+        "📈 어닝 서프라이즈 +8.5%",
+        "🚀 가이던스 상향 추정 (Forward EPS +41.5%)"
+      ],
+      "institutional": {
+        "pct": 0.88793,
+        "top_holders": [
+          {
+            "name": "Blackrock Inc.",
+            "shares": 134259711,
+            "pct": 0.1075
+          },
+          {
+            "name": "Vanguard Group Inc",
+            "shares": 131185330,
+            "pct": 0.105100006
+          },
+          {
+            "name": "State Street Corporation",
+            "shares": 59686084,
+            "pct": 0.0478
+          }
+        ]
+      },
+      "fundamentals": {
+        "pe": 47.83811,
+        "forward_pe": 33.816376,
+        "peg": null,
+        "revenue_growth": 0.221,
+        "earnings_growth": 0.37,
+        "debt_to_equity": 44.195,
+        "profit_margin": 0.3022,
+        "roe": 0.65565,
+        "dividend_yield": 0.45
+      },
+      "analyst": {
+        "recommendation": "buy",
+        "target_mean": 274.90323,
+        "target_high": 325.0,
+        "num_analysts": 31
+      },
+      "news_summary": {
+        "positive": 4,
+        "negative": 0,
+        "neutral": 6,
+        "recent": [
+          {
+            "title": "Why QQQM Is Riskier Than Its Low-Cost, Set-It-and-Forget-It Reputation Suggests",
+            "sentiment": "neutral",
+            "date": "2026-03-25",
+            "source": "24/7 Wall St."
+          },
+          {
+            "title": "Micron Falls as Q2 Earnings and AI Compression Put Memory Stocks on Edge",
+            "sentiment": "neutral",
+            "date": "2026-03-25",
+            "source": "24/7 Wall St."
+          },
+          {
+            "title": "Can High-NA EUV Adoption Accelerate ASML's Long-Term Revenue Growth?",
+            "sentiment": "positive",
+            "date": "2026-03-25",
+            "source": "Zacks"
+          },
+          {
+            "title": "Assessing Lam Research (LRCX) Valuation After Strong Multi Year Shareholder Returns",
+            "sentiment": "positive",
+            "date": "2026-03-25",
+            "source": "Simply Wall St."
+          },
+          {
+            "title": "3 Tech ETFs for 2026: FTEC, IGV, and XNTK Tell Very Different Stories",
+            "sentiment": "neutral",
+            "date": "2026-03-25",
+            "source": "24/7 Wall St."
+          }
+        ]
+      },
+      "trend": {
+        "above_200ma": "True",
+        "ma200_gap": 51.323180797745835,
+        "above_50ma": "True",
+        "weekly_rsi": 68.38986419574302
+      },
+      "earnings": {
+        "consecutive_beats": 8,
+        "last_surprise_pct": 8.5,
+        "guidance_direction": "raised",
+        "next_earnings_date": "2026-04-22",
+        "history": [
+          {
+            "date": "2026-01-28",
+            "reported": 1.27,
+            "estimate": 1.17,
+            "surprise_pct": 8.5,
+            "beat": true
+          },
+          {
+            "date": "2025-10-22",
+            "reported": 1.26,
+            "estimate": 1.22,
+            "surprise_pct": 3.3,
+            "beat": true
+          },
+          {
+            "date": "2025-07-30",
+            "reported": 1.33,
+            "estimate": 1.21,
+            "surprise_pct": 9.9,
+            "beat": true
+          },
+          {
+            "date": "2025-04-23",
+            "reported": 1.04,
+            "estimate": 1.0,
+            "surprise_pct": 4.0,
+            "beat": true
+          }
+        ]
+      }
+    },
+    {
+      "ticker": "NVDA",
+      "company": "NVIDIA Corporation",
+      "sector": "Technology",
+      "industry": "Semiconductors",
+      "price": 178.68,
+      "total_score": 147,
+      "grade": "🔥 강력 매수",
+      "scores": {
+        "institutional": 13,
+        "insider": 0,
+        "fundamental": 45,
+        "news": 15,
+        "analyst": 25,
+        "trend": 14,
+        "earnings": 35
+      },
+      "signals": [
+        "🏦 기관 보유 69.8% (높음)",
+        "⭐ Vanguard Group Inc 보유 중",
+        "📊 적정 PER (16.1)",
+        "📈 매출 성장 73.2%",
+        "💹 이익 성장 95.6%",
+        "🛡️ 낮은 부채비율 (7%)",
+        "💎 높은 이익률 (55.6%)",
+        "⭐ 높은 ROE (101.5%)",
+        "📰 뉴스 매우 긍정적 (+4/-1)",
+        "🎯 애널리스트: Strong Buy",
+        "🚀 목표가 상승여력 50.1%",
+        "⚠️ 200일선 살짝 아래 (-0.1%) - 반등 가능",
+        "✅ 골든크로스 상태 (50일 > 200일)",
+        "📊 52주 고점 대비 -13.7%",
+        "🔥 8분기 연속 어닝 비트!",
+        "📈 어닝 서프라이즈 +5.2%",
+        "🚀 가이던스 상향 추정 (Forward EPS +126.9%)"
+      ],
+      "institutional": {
+        "pct": 0.69771004,
+        "top_holders": [
+          {
+            "name": "Vanguard Group Inc",
+            "shares": 2266683275,
+            "pct": 0.0933
+          },
+          {
+            "name": "Blackrock Inc.",
+            "shares": 1943812884,
+            "pct": 0.08
+          },
+          {
+            "name": "State Street Corporation",
+            "shares": 991480489,
+            "pct": 0.040799998
+          }
+        ]
+      },
+      "fundamentals": {
+        "pe": 36.465305,
+        "forward_pe": 16.07362,
+        "peg": null,
+        "revenue_growth": 0.732,
+        "earnings_growth": 0.956,
+        "debt_to_equity": 7.255,
+        "profit_margin": 0.55603004,
+        "roe": 1.01485,
+        "dividend_yield": 0.02
+      },
+      "analyst": {
+        "recommendation": "strong_buy",
+        "target_mean": 268.22195,
+        "target_high": 380.0,
+        "num_analysts": 56
+      },
+      "news_summary": {
+        "positive": 4,
+        "negative": 1,
+        "neutral": 5,
+        "recent": [
+          {
+            "title": "Arm stock rockets 15% following AI chip debut",
+            "sentiment": "positive",
+            "date": "2026-03-24",
+            "source": "Yahoo Finance"
+          },
+          {
+            "title": "Morning Brief: 3 factors have made for big historical stock market losses",
+            "sentiment": "negative",
+            "date": "2026-03-25",
+            "source": "Yahoo Finance"
+          },
+          {
+            "title": "Nvidia CEO Jensen Huang claims AGI has been 'achieved,' can create billion-dollar businesses",
+            "sentiment": "neutral",
+            "date": "2026-03-24",
+            "source": "Yahoo Finance"
+          },
+          {
+            "title": "Nvidia vs. Alphabet: Both Are Down Big in 2026 -- but Only 1 Is a Buy Right Now",
+            "sentiment": "positive",
+            "date": "2026-03-26",
+            "source": "Motley Fool"
+          },
+          {
+            "title": "Surging Oil Prices Spark Market Jitters",
+            "sentiment": "neutral",
+            "date": "2026-03-26",
+            "source": "Motley Fool"
+          }
+        ]
+      },
+      "trend": {
+        "above_200ma": "False",
+        "ma200_gap": -0.14941315998511406,
+        "above_50ma": "False",
+        "weekly_rsi": 48.258385621315234
+      },
+      "earnings": {
+        "consecutive_beats": 8,
+        "last_surprise_pct": 5.2,
+        "guidance_direction": "raised",
+        "next_earnings_date": "2026-05-20",
+        "history": [
+          {
+            "date": "2026-02-25",
+            "reported": 1.62,
+            "estimate": 1.54,
+            "surprise_pct": 5.2,
+            "beat": true
+          },
+          {
+            "date": "2025-11-19",
+            "reported": 1.3,
+            "estimate": 1.26,
+            "surprise_pct": 3.2,
+            "beat": true
+          },
+          {
+            "date": "2025-08-27",
+            "reported": 1.05,
+            "estimate": 1.01,
+            "surprise_pct": 4.0,
+            "beat": true
+          },
+          {
+            "date": "2025-05-28",
+            "reported": 0.81,
+            "estimate": 0.75,
+            "surprise_pct": 8.0,
+            "beat": true
+          }
+        ]
+      }
+    },
+    {
+      "ticker": "GOOGL",
+      "company": "Alphabet Inc.",
+      "sector": "Communication Services",
+      "industry": "Internet Content & Information",
+      "price": 290.93,
+      "total_score": 141,
+      "grade": "🔥 강력 매수",
+      "scores": {
+        "institutional": 18,
+        "insider": 0,
+        "fundamental": 40,
+        "news": 5,
+        "analyst": 20,
+        "trend": 23,
+        "earnings": 35
+      },
+      "signals": [
+        "🏦 기관 보유 80.8% (매우 높음)",
+        "⭐ Vanguard Group Inc 보유 중",
+        "📊 적정 PER (21.7)",
+        "📊 매출 성장 18.0%",
+        "💹 이익 성장 31.1%",
+        "🛡️ 낮은 부채비율 (16%)",
+        "💎 높은 이익률 (32.8%)",
+        "⭐ 높은 ROE (35.7%)",
+        "📰 뉴스 혼조 (+2/-2)",
+        "🎯 애널리스트: Strong Buy",
+        "📈 목표가 상승여력 29.5%",
+        "✅ 200일선 위 (11.3%)",
+        "✅ 골든크로스 상태 (50일 > 200일)",
+        "📊 52주 고점 대비 -15.3%",
+        "📊 주간 RSI 낮음 (42.6)",
+        "🔥 8분기 연속 어닝 비트!",
+        "📈 어닝 서프라이즈 +6.8%",
+        "🚀 가이던스 상향 추정 (Forward EPS +24.0%)"
+      ],
+      "institutional": {
+        "pct": 0.80818003,
+        "top_holders": [
+          {
+            "name": "Vanguard Group Inc",
+            "shares": 528969322,
+            "pct": 0.090900004
+          },
+          {
+            "name": "Blackrock Inc.",
+            "shares": 441987843,
+            "pct": 0.0759
+          },
+          {
+            "name": "FMR, LLC",
+            "shares": 231778122,
+            "pct": 0.0398
+          }
+        ]
+      },
+      "fundamentals": {
+        "pe": 26.88817,
+        "forward_pe": 21.676302,
+        "peg": null,
+        "revenue_growth": 0.18,
+        "earnings_growth": 0.311,
+        "debt_to_equity": 16.133,
+        "profit_margin": 0.32810003,
+        "roe": 0.35705003,
+        "dividend_yield": 0.29
+      },
+      "analyst": {
+        "recommendation": "strong_buy",
+        "target_mean": 376.75394,
+        "target_high": 443.0,
+        "num_analysts": 56
+      },
+      "news_summary": {
+        "positive": 2,
+        "negative": 2,
+        "neutral": 6,
+        "recent": [
+          {
+            "title": "Meta, Google found liable in social media addiction case",
+            "sentiment": "neutral",
+            "date": "2026-03-25",
+            "source": "Yahoo Finance Video"
+          },
+          {
+            "title": "Meta, YouTube found negligent in landmark social media addiction lawsuit",
+            "sentiment": "negative",
+            "date": "2026-03-25",
+            "source": "Yahoo Finance"
+          },
+          {
+            "title": "Nvidia CEO Jensen Huang claims AGI has been 'achieved,' can create billion-dollar businesses",
+            "sentiment": "neutral",
+            "date": "2026-03-24",
+            "source": "Yahoo Finance"
+          },
+          {
+            "title": "Nvidia vs. Alphabet: Both Are Down Big in 2026 -- but Only 1 Is a Buy Right Now",
+            "sentiment": "positive",
+            "date": "2026-03-26",
+            "source": "Motley Fool"
+          },
+          {
+            "title": "OpenAI Backs New AI Startup Seeking Bot Army Breakthroughs",
+            "sentiment": "positive",
+            "date": "2026-03-26",
+            "source": "The Wall Street Journal"
+          }
+        ]
+      },
+      "trend": {
+        "above_200ma": "True",
+        "ma200_gap": 11.285636518263823,
+        "above_50ma": "False",
+        "weekly_rsi": 42.60220474021685
+      },
+      "earnings": {
+        "consecutive_beats": 8,
+        "last_surprise_pct": 6.8,
+        "guidance_direction": "raised",
+        "next_earnings_date": "2026-04-23",
+        "history": [
+          {
+            "date": "2026-02-04",
+            "reported": 2.82,
+            "estimate": 2.64,
+            "surprise_pct": 6.8,
+            "beat": true
+          },
+          {
+            "date": "2025-10-29",
+            "reported": 2.87,
+            "estimate": 2.26,
+            "surprise_pct": 27.0,
+            "beat": true
+          },
+          {
+            "date": "2025-07-23",
+            "reported": 2.31,
+            "estimate": 2.2,
+            "surprise_pct": 5.0,
+            "beat": true
+          },
+          {
+            "date": "2025-04-24",
+            "reported": 2.81,
+            "estimate": 2.01,
+            "surprise_pct": 39.8,
+            "beat": true
+          }
+        ]
+      }
+    },
+    {
+      "ticker": "LLY",
+      "company": "Eli Lilly and Company",
+      "sector": "Healthcare",
+      "industry": "Drug Manufacturers - General",
+      "price": 916.31,
+      "total_score": 139,
+      "grade": "🔥 강력 매수",
+      "scores": {
+        "institutional": 18,
+        "insider": 0,
+        "fundamental": 35,
+        "news": 15,
+        "analyst": 20,
+        "trend": 26,
+        "earnings": 25
+      },
+      "signals": [
+        "🏦 기관 보유 84.6% (매우 높음)",
+        "⭐ Vanguard Group Inc 보유 중",
+        "📊 적정 PER (21.8)",
+        "📈 매출 성장 42.6%",
+        "💹 이익 성장 51.4%",
+        "💎 높은 이익률 (31.7%)",
+        "⭐ 높은 ROE (101.2%)",
+        "📰 뉴스 매우 긍정적 (+6/-0)",
+        "🎯 애널리스트: Buy",
+        "🚀 목표가 상승여력 32.0%",
+        "✅ 200일선 위 (2.7%)",
+        "✅ 골든크로스 상태 (50일 > 200일)",
+        "📊 52주 고점 대비 -17.3%",
+        "📉 주간 RSI 과매도 (29.2)",
+        "✅ 3분기 연속 어닝 비트",
+        "📈 어닝 서프라이즈 +9.1%",
+        "🚀 가이던스 상향 추정 (Forward EPS +83.8%)"
+      ],
+      "institutional": {
+        "pct": 0.84613997,
+        "top_holders": [
+          {
+            "name": "Lilly Endowment, Inc",
+            "shares": 92190516,
+            "pct": 0.097600006
+          },
+          {
+            "name": "Vanguard Group Inc",
+            "shares": 81965974,
+            "pct": 0.0868
+          },
+          {
+            "name": "Blackrock Inc.",
+            "shares": 66792863,
+            "pct": 0.070700005
+          }
+        ]
+      },
+      "fundamentals": {
+        "pe": 39.99607,
+        "forward_pe": 21.766235,
+        "peg": null,
+        "revenue_growth": 0.426,
+        "earnings_growth": 0.514,
+        "debt_to_equity": 165.31,
+        "profit_margin": 0.31667,
+        "roe": 1.01159,
+        "dividend_yield": 0.69
+      },
+      "analyst": {
+        "recommendation": "buy",
+        "target_mean": 1209.3448,
+        "target_high": 1500.0,
+        "num_analysts": 29
+      },
+      "news_summary": {
+        "positive": 6,
+        "negative": 0,
+        "neutral": 4,
+        "recent": [
+          {
+            "title": "Eli Lilly (LLY) Outpaces Stock Market Gains: What You Should Know",
+            "sentiment": "neutral",
+            "date": "2026-03-25",
+            "source": "Zacks"
+          },
+          {
+            "title": "Growing Optimism About ProQR Therapeutics (PRQR)’s RNA Editing Platform and Future Clinical Catalyst",
+            "sentiment": "positive",
+            "date": "2026-03-25",
+            "source": "Insider Monkey"
+          },
+          {
+            "title": "3 Equal Weight ETFs Beating the S&P 500 in 2026 as Mega-Cap Dominance Fades",
+            "sentiment": "positive",
+            "date": "2026-03-25",
+            "source": "24/7 Wall St."
+          },
+          {
+            "title": "Is Eli Lilly (LLY) The Best Healthcare Stock to Buy According to Jim Cramer?",
+            "sentiment": "positive",
+            "date": "2026-03-25",
+            "source": "Insider Monkey"
+          },
+          {
+            "title": "Eli Lilly (LLY) Gained From Growth in its GLP-1 Franchises Drugs",
+            "sentiment": "positive",
+            "date": "2026-03-25",
+            "source": "Insider Monkey"
+          }
+        ]
+      },
+      "trend": {
+        "above_200ma": "True",
+        "ma200_gap": 2.677686864735879,
+        "above_50ma": "False",
+        "weekly_rsi": 29.22151786194263
+      },
+      "earnings": {
+        "consecutive_beats": 3,
+        "last_surprise_pct": 9.1,
+        "guidance_direction": "raised",
+        "next_earnings_date": "2026-04-30",
+        "history": [
+          {
+            "date": "2026-02-04",
+            "reported": 7.54,
+            "estimate": 6.91,
+            "surprise_pct": 9.1,
+            "beat": true
+          },
+          {
+            "date": "2025-10-30",
+            "reported": 7.02,
+            "estimate": 5.89,
+            "surprise_pct": 19.2,
+            "beat": true
+          },
+          {
+            "date": "2025-08-07",
+            "reported": 6.29,
+            "estimate": 5.5,
+            "surprise_pct": 14.4,
+            "beat": true
+          },
+          {
+            "date": "2025-05-01",
+            "reported": 3.06,
+            "estimate": 4.11,
+            "surprise_pct": -25.5,
+            "beat": false
+          }
+        ]
+      }
+    },
+    {
+      "ticker": "ADI",
+      "company": "Analog Devices, Inc.",
+      "sector": "Technology",
+      "industry": "Semiconductors",
+      "price": 322.03,
+      "total_score": 139,
+      "grade": "🔥 강력 매수",
+      "scores": {
+        "institutional": 18,
+        "insider": 0,
+        "fundamental": 40,
+        "news": 15,
+        "analyst": 15,
+        "trend": 21,
+        "earnings": 30
+      },
+      "signals": [
+        "🏦 기관 보유 93.5% (매우 높음)",
+        "⭐ Vanguard Group Inc 보유 중",
+        "📊 적정 PER (24.9)",
+        "📈 매출 성장 30.4%",
+        "💹 이익 성장 116.7%",
+        "🛡️ 낮은 부채비율 (26%)",
+        "💎 높은 이익률 (23.0%)",
+        "📰 뉴스 매우 긍정적 (+3/-0)",
+        "🎯 애널리스트: Buy",
+        "📈 목표가 상승여력 19.4%",
+        "✅ 200일선 위 (22.0%)",
+        "✅ 골든크로스 상태 (50일 > 200일)",
+        "📊 52주 고점 대비 -10.5%",
+        "🔥 4분기 연속 어닝 비트!",
+        "🚀 가이던스 상향 추정 (Forward EPS +136.3%)"
+      ],
+      "institutional": {
+        "pct": 0.93453,
+        "top_holders": [
+          {
+            "name": "Vanguard Group Inc",
+            "shares": 50893276,
+            "pct": 0.1042
+          },
+          {
+            "name": "Blackrock Inc.",
+            "shares": 43255569,
+            "pct": 0.088599995
+          },
+          {
+            "name": "State Street Corporation",
+            "shares": 23487584,
+            "pct": 0.0481
+          }
+        ]
+      },
+      "fundamentals": {
+        "pe": 58.872032,
+        "forward_pe": 24.912697,
+        "peg": null,
+        "revenue_growth": 0.304,
+        "earnings_growth": 1.167,
+        "debt_to_equity": 25.753,
+        "profit_margin": 0.23024,
+        "roe": 0.07862,
+        "dividend_yield": 1.26
+      },
+      "analyst": {
+        "recommendation": "buy",
+        "target_mean": 384.53125,
+        "target_high": 430.0,
+        "num_analysts": 32
+      },
+      "news_summary": {
+        "positive": 3,
+        "negative": 0,
+        "neutral": 7,
+        "recent": [
+          {
+            "title": "Can Qualcomm's Advanced AI Camera for Security & IoT Drive Profits?",
+            "sentiment": "positive",
+            "date": "2026-03-25",
+            "source": "Zacks"
+          },
+          {
+            "title": "Magnachip, Analog Devices, Applied Materials, KLA Corporation, and MACOM Shares Skyrocket, What You ",
+            "sentiment": "neutral",
+            "date": "2026-03-25",
+            "source": "StockStory"
+          },
+          {
+            "title": "2 Growth Stocks Set to Flourishand 1 Facing Challenges",
+            "sentiment": "positive",
+            "date": "2026-03-24",
+            "source": "StockStory"
+          },
+          {
+            "title": "SNDK vs. ADI: Which Semiconductor Stock Has an Edge in Data Centers?",
+            "sentiment": "neutral",
+            "date": "2026-03-24",
+            "source": "Zacks"
+          },
+          {
+            "title": "Nvidia, AMD Rally As War Fears Ease",
+            "sentiment": "positive",
+            "date": "2026-03-23",
+            "source": "GuruFocus.com"
+          }
+        ]
+      },
+      "trend": {
+        "above_200ma": "True",
+        "ma200_gap": 21.967794443984236,
+        "above_50ma": "False",
+        "weekly_rsi": 65.81136821657017
+      },
+      "earnings": {
+        "consecutive_beats": 4,
+        "last_surprise_pct": 3.0,
+        "guidance_direction": "raised",
+        "next_earnings_date": "2026-05-21",
+        "history": [
+          {
+            "date": "2026-02-18",
+            "reported": 1.69,
+            "estimate": 1.64,
+            "surprise_pct": 3.0,
+            "beat": true
+          },
+          {
+            "date": "2025-11-25",
+            "reported": 2.26,
+            "estimate": 2.23,
+            "surprise_pct": 1.3,
+            "beat": true
+          },
+          {
+            "date": "2025-08-20",
+            "reported": 2.05,
+            "estimate": 1.95,
+            "surprise_pct": 5.1,
+            "beat": true
+          },
+          {
+            "date": "2025-05-22",
+            "reported": 1.14,
+            "estimate": 0.99,
+            "surprise_pct": 15.2,
+            "beat": true
+          }
+        ]
+      }
+    },
+    {
+      "ticker": "MRVL",
+      "company": "Marvell Technology, Inc.",
+      "sector": "Technology",
+      "industry": "Semiconductors",
+      "price": 98.45,
+      "total_score": 138,
+      "grade": "🔥 강력 매수",
+      "scores": {
+        "institutional": 18,
+        "insider": 0,
+        "fundamental": 40,
+        "news": 15,
+        "analyst": 20,
+        "trend": 25,
+        "earnings": 20
+      },
+      "signals": [
+        "🏦 기관 보유 83.6% (매우 높음)",
+        "⭐ Vanguard Group Inc 보유 중",
+        "📊 적정 PER (18.1)",
+        "📈 매출 성장 22.1%",
+        "💹 이익 성장 106.3%",
+        "🛡️ 낮은 부채비율 (33%)",
+        "💎 높은 이익률 (32.6%)",
+        "📰 뉴스 매우 긍정적 (+6/-1)",
+        "🎯 애널리스트: Strong Buy",
+        "📈 목표가 상승여력 22.4%",
+        "✅ 200일선 위 (22.1%)",
+        "✅ 골든크로스 상태 (50일 > 200일)",
+        "🔝 52주 고점 근접 (-1.7%)",
+        "✅ 2분기 연속 어닝 비트",
+        "🚀 가이던스 상향 추정 (Forward EPS +77.2%)"
+      ],
+      "institutional": {
+        "pct": 0.83557,
+        "top_holders": [
+          {
+            "name": "FMR, LLC",
+            "shares": 126817429,
+            "pct": 0.1451
+          },
+          {
+            "name": "Vanguard Group Inc",
+            "shares": 78755386,
+            "pct": 0.090100005
+          },
+          {
+            "name": "Blackrock Inc.",
+            "shares": 59806492,
+            "pct": 0.0684
+          }
+        ]
+      },
+      "fundamentals": {
+        "pe": 32.068405,
+        "forward_pe": 18.099123,
+        "peg": null,
+        "revenue_growth": 0.221,
+        "earnings_growth": 1.063,
+        "debt_to_equity": 33.479,
+        "profit_margin": 0.32584,
+        "roe": 0.19253999,
+        "dividend_yield": 0.24
+      },
+      "analyst": {
+        "recommendation": "strong_buy",
+        "target_mean": 120.50163,
+        "target_high": 164.0,
+        "num_analysts": 40
+      },
+      "news_summary": {
+        "positive": 6,
+        "negative": 1,
+        "neutral": 3,
+        "recent": [
+          {
+            "title": "Dow Jones Futures Fall; Stock Market Fades Amid Iran War Deal Hopes, Doubts",
+            "sentiment": "positive",
+            "date": "2026-03-26",
+            "source": "Investor's Business Daily"
+          },
+          {
+            "title": "AMD and Intel Are Leading a Chip Stock Rally Today. Here's Why.",
+            "sentiment": "positive",
+            "date": "2026-03-25",
+            "source": "Investopedia"
+          },
+          {
+            "title": "Trump Trade: TotalEnergies to shift capital from wind to natural gas",
+            "sentiment": "positive",
+            "date": "2026-03-25",
+            "source": "TipRanks"
+          },
+          {
+            "title": "Dow Jones Futures Rise, Oil Prices Tumble On Cautious Hopes For Iran Peace Deal",
+            "sentiment": "positive",
+            "date": "2026-03-25",
+            "source": "Investor's Business Daily"
+          },
+          {
+            "title": "Here's Why Nvidia's Stock Looks ‘Relatively Cheap' According to These Experts",
+            "sentiment": "neutral",
+            "date": "2026-03-24",
+            "source": "Investopedia"
+          }
+        ]
+      },
+      "trend": {
+        "above_200ma": "True",
+        "ma200_gap": 22.064932296345244,
+        "above_50ma": "True",
+        "weekly_rsi": 67.1705216148722
+      },
+      "earnings": {
+        "consecutive_beats": 2,
+        "last_surprise_pct": 1.3,
+        "guidance_direction": "raised",
+        "next_earnings_date": "2026-05-28",
+        "history": [
+          {
+            "date": "2026-03-05",
+            "reported": 0.8,
+            "estimate": 0.79,
+            "surprise_pct": 1.3,
+            "beat": true
+          },
+          {
+            "date": "2025-12-02",
+            "reported": 0.76,
+            "estimate": 0.74,
+            "surprise_pct": 2.7,
+            "beat": true
+          },
+          {
+            "date": "2025-08-28",
+            "reported": 0.67,
+            "estimate": 0.67,
+            "surprise_pct": 0.0,
+            "beat": false
+          }
+        ]
+      }
+    },
+    {
+      "ticker": "TER",
+      "company": "Teradyne, Inc.",
+      "sector": "Technology",
+      "industry": "Semiconductor Equipment & Materials",
+      "price": 323.36,
+      "total_score": 138,
+      "grade": "🔥 강력 매수",
+      "scores": {
+        "institutional": 18,
+        "insider": 0,
+        "fundamental": 30,
+        "news": 15,
+        "analyst": 10,
+        "trend": 25,
+        "earnings": 40
+      },
+      "signals": [
+        "🏦 기관 보유 98.4% (매우 높음)",
+        "⭐ Vanguard Group Inc 보유 중",
+        "📈 매출 성장 43.9%",
+        "💹 이익 성장 81.4%",
+        "🛡️ 낮은 부채비율 (10%)",
+        "📰 뉴스 매우 긍정적 (+4/-0)",
+        "🎯 애널리스트: Buy",
+        "✅ 200일선 위 (84.2%)",
+        "✅ 골든크로스 상태 (50일 > 200일)",
+        "🔝 52주 고점 근접 (-5.7%)",
+        "🔥 8분기 연속 어닝 비트!",
+        "💥 어닝 서프라이즈 +30.4% (대폭 상회)",
+        "🚀 가이던스 상향 추정 (Forward EPS +137.7%)"
+      ],
+      "institutional": {
+        "pct": 0.98410004,
+        "top_holders": [
+          {
+            "name": "Vanguard Group Inc",
+            "shares": 20298150,
+            "pct": 0.1169
+          },
+          {
+            "name": "Blackrock Inc.",
+            "shares": 15398237,
+            "pct": 0.0887
+          },
+          {
+            "name": "State Street Corporation",
+            "shares": 7078635,
+            "pct": 0.040799998
+          }
+        ]
+      },
+      "fundamentals": {
+        "pe": 93.45664,
+        "forward_pe": 39.321888,
+        "peg": null,
+        "revenue_growth": 0.439,
+        "earnings_growth": 0.814,
+        "debt_to_equity": 10.131,
+        "profit_margin": 0.17368001,
+        "roe": 0.19734,
+        "dividend_yield": 0.16
+      },
+      "analyst": {
+        "recommendation": "buy",
+        "target_mean": 314.17648,
+        "target_high": 400.0,
+        "num_analysts": 17
+      },
+      "news_summary": {
+        "positive": 4,
+        "negative": 0,
+        "neutral": 6,
+        "recent": [
+          {
+            "title": "Teradyne (TER) to Facilitate Production of High-Volume Silicon Photonics and Co-Packaged Optics with",
+            "sentiment": "neutral",
+            "date": "2026-03-25",
+            "source": "Insider Monkey"
+          },
+          {
+            "title": "Teradyne, Seagate, and Nova Shares Are Soaring, What You Need To Know",
+            "sentiment": "neutral",
+            "date": "2026-03-25",
+            "source": "StockStory"
+          },
+          {
+            "title": "3 Top Ranked High Growth Stocks You Can't Ignore: ROKU, TER, CRDO",
+            "sentiment": "positive",
+            "date": "2026-03-24",
+            "source": "Zacks"
+          },
+          {
+            "title": "Teradyne Drives Robotics With AI: Is the Growth Thesis Strengthening?",
+            "sentiment": "positive",
+            "date": "2026-03-24",
+            "source": "Zacks"
+          },
+          {
+            "title": "2 Unpopular Stocks That Should Get More Attention and 1 We Avoid",
+            "sentiment": "neutral",
+            "date": "2026-03-23",
+            "source": "StockStory"
+          }
+        ]
+      },
+      "trend": {
+        "above_200ma": "True",
+        "ma200_gap": 84.22254796492396,
+        "above_50ma": "True",
+        "weekly_rsi": 77.65907865349257
+      },
+      "earnings": {
+        "consecutive_beats": 8,
+        "last_surprise_pct": 30.4,
+        "guidance_direction": "raised",
+        "next_earnings_date": "2026-04-29",
+        "history": [
+          {
+            "date": "2026-02-02",
+            "reported": 1.8,
+            "estimate": 1.38,
+            "surprise_pct": 30.4,
+            "beat": true
+          },
+          {
+            "date": "2025-10-28",
+            "reported": 0.85,
+            "estimate": 0.79,
+            "surprise_pct": 7.6,
+            "beat": true
+          },
+          {
+            "date": "2025-07-29",
+            "reported": 0.57,
+            "estimate": 0.54,
+            "surprise_pct": 5.6,
+            "beat": true
+          },
+          {
+            "date": "2025-04-28",
+            "reported": 0.75,
+            "estimate": 0.62,
+            "surprise_pct": 21.0,
+            "beat": true
+          }
+        ]
+      }
+    },
+    {
+      "ticker": "CRDO",
+      "company": "Credo Technology Group Holding ",
+      "sector": "Technology",
+      "industry": "Semiconductors",
+      "price": 103.91,
+      "total_score": 138,
+      "grade": "🔥 강력 매수",
+      "scores": {
+        "institutional": 13,
+        "insider": 0,
+        "fundamental": 45,
+        "news": 15,
+        "analyst": 25,
+        "trend": 5,
+        "earnings": 35
+      },
+      "signals": [
+        "🏦 기관 보유 77.7% (높음)",
+        "⭐ Blackrock Inc. 보유 중",
+        "📊 적정 PER (22.0)",
+        "📈 매출 성장 201.5%",
+        "💹 이익 성장 412.5%",
+        "🛡️ 낮은 부채비율 (1%)",
+        "💎 높은 이익률 (31.8%)",
+        "⭐ 높은 ROE (27.5%)",
+        "📰 뉴스 매우 긍정적 (+6/-0)",
+        "🎯 애널리스트: Strong Buy",
+        "🚀 목표가 상승여력 91.9%",
+        "⚠️ 200일선 아래 (-20.0%)",
+        "⚠️ 데드크로스 상태 (50일 < 200일)",
+        "📉 52주 고점 대비 -45.1%",
+        "📉 주간 RSI 과매도 (27.7)",
+        "🔥 6분기 연속 어닝 비트!",
+        "📈 어닝 서프라이즈 +13.8%",
+        "🚀 가이던스 상향 추정 (Forward EPS +159.6%)"
+      ],
+      "institutional": {
+        "pct": 0.77699,
+        "top_holders": [
+          {
+            "name": "Blackrock Inc.",
+            "shares": 21065146,
+            "pct": 0.1142
+          },
+          {
+            "name": "Vanguard Group Inc",
+            "shares": 16585229,
+            "pct": 0.089899994
+          },
+          {
+            "name": "JPMORGAN CHASE & CO",
+            "shares": 5794510,
+            "pct": 0.031400003
+          }
+        ]
+      },
+      "fundamentals": {
+        "pe": 57.093407,
+        "forward_pe": 21.993769,
+        "peg": null,
+        "revenue_growth": 2.015,
+        "earnings_growth": 4.125,
+        "debt_to_equity": 0.88,
+        "profit_margin": 0.31809,
+        "roe": 0.27544,
+        "dividend_yield": null
+      },
+      "analyst": {
+        "recommendation": "strong_buy",
+        "target_mean": 199.375,
+        "target_high": 260.0,
+        "num_analysts": 16
+      },
+      "news_summary": {
+        "positive": 6,
+        "negative": 0,
+        "neutral": 4,
+        "recent": [
+          {
+            "title": "3 Top Ranked High Growth Stocks You Can't Ignore: ROKU, TER, CRDO",
+            "sentiment": "positive",
+            "date": "2026-03-24",
+            "source": "Zacks"
+          },
+          {
+            "title": "1 Top Stock to Buy as Nvidia Doubles Down on Copper",
+            "sentiment": "positive",
+            "date": "2026-03-24",
+            "source": "Barchart"
+          },
+          {
+            "title": "Marvell Technology Deepens Its Connectivity Portfolio: What's Ahead?",
+            "sentiment": "neutral",
+            "date": "2026-03-23",
+            "source": "Zacks"
+          },
+          {
+            "title": "CRDO vs. MRVL: Which AI Connectivity Stock Is the Better Buy?",
+            "sentiment": "positive",
+            "date": "2026-03-23",
+            "source": "Zacks"
+          },
+          {
+            "title": "Is Credo Technology Group Holding (CRDO) Still Attractive After Recent Share Price Pullback?",
+            "sentiment": "neutral",
+            "date": "2026-03-22",
+            "source": "Simply Wall St."
+          }
+        ]
+      },
+      "trend": {
+        "above_200ma": "False",
+        "ma200_gap": -19.960297105892057,
+        "above_50ma": "False",
+        "weekly_rsi": 27.731739369646448
+      },
+      "earnings": {
+        "consecutive_beats": 6,
+        "last_surprise_pct": 13.8,
+        "guidance_direction": "raised",
+        "next_earnings_date": "2026-06-01",
+        "history": [
+          {
+            "date": "2026-03-02",
+            "reported": 1.07,
+            "estimate": 0.94,
+            "surprise_pct": 13.8,
+            "beat": true
+          },
+          {
+            "date": "2025-12-01",
+            "reported": 0.67,
+            "estimate": 0.5,
+            "surprise_pct": 34.0,
+            "beat": true
+          },
+          {
+            "date": "2025-09-03",
+            "reported": 0.52,
+            "estimate": 0.36,
+            "surprise_pct": 44.4,
+            "beat": true
+          },
+          {
+            "date": "2025-06-02",
+            "reported": 0.35,
+            "estimate": 0.27,
+            "surprise_pct": 29.6,
+            "beat": true
+          }
+        ]
+      }
+    },
+    {
+      "ticker": "GOOG",
+      "company": "Alphabet Inc.",
+      "sector": "Communication Services",
+      "industry": "Internet Content & Information",
+      "price": 289.59,
+      "total_score": 136,
+      "grade": "🔥 강력 매수",
+      "scores": {
+        "institutional": 13,
+        "insider": 0,
+        "fundamental": 40,
+        "news": 5,
+        "analyst": 20,
+        "trend": 23,
+        "earnings": 35
+      },
+      "signals": [
+        "🏦 기관 보유 61.0% (높음)",
+        "⭐ Vanguard Group Inc 보유 중",
+        "📊 적정 PER (21.6)",
+        "📊 매출 성장 18.0%",
+        "💹 이익 성장 31.1%",
+        "🛡️ 낮은 부채비율 (16%)",
+        "💎 높은 이익률 (32.8%)",
+        "⭐ 높은 ROE (35.7%)",
+        "📰 뉴스 혼조 (+2/-2)",
+        "🎯 애널리스트: Strong Buy",
+        "📈 목표가 상승여력 24.2%",
+        "✅ 200일선 위 (10.5%)",
+        "✅ 골든크로스 상태 (50일 > 200일)",
+        "📊 52주 고점 대비 -16.0%",
+        "📊 주간 RSI 낮음 (41.2)",
+        "🔥 8분기 연속 어닝 비트!",
+        "📈 어닝 서프라이즈 +6.8%",
+        "🚀 가이던스 상향 추정 (Forward EPS +23.9%)"
+      ],
+      "institutional": {
+        "pct": 0.60998,
+        "top_holders": [
+          {
+            "name": "Vanguard Group Inc",
+            "shares": 421013782,
+            "pct": 0.0774
+          },
+          {
+            "name": "Blackrock Inc.",
+            "shares": 361248457,
+            "pct": 0.0664
+          },
+          {
+            "name": "State Street Corporation",
+            "shares": 187102863,
+            "pct": 0.0344
+          }
+        ]
+      },
+      "fundamentals": {
+        "pe": 26.739613,
+        "forward_pe": 21.576462,
+        "peg": null,
+        "revenue_growth": 0.18,
+        "earnings_growth": 0.311,
+        "debt_to_equity": 16.133,
+        "profit_margin": 0.32810003,
+        "roe": 0.35705003,
+        "dividend_yield": 0.29
+      },
+      "analyst": {
+        "recommendation": "strong_buy",
+        "target_mean": 359.52942,
+        "target_high": 405.0,
+        "num_analysts": 17
+      },
+      "news_summary": {
+        "positive": 2,
+        "negative": 2,
+        "neutral": 6,
+        "recent": [
+          {
+            "title": "Meta, Google found liable in social media addiction case",
+            "sentiment": "neutral",
+            "date": "2026-03-25",
+            "source": "Yahoo Finance Video"
+          },
+          {
+            "title": "Meta, YouTube found negligent in landmark social media addiction lawsuit",
+            "sentiment": "negative",
+            "date": "2026-03-25",
+            "source": "Yahoo Finance"
+          },
+          {
+            "title": "Nvidia CEO Jensen Huang claims AGI has been 'achieved,' can create billion-dollar businesses",
+            "sentiment": "neutral",
+            "date": "2026-03-24",
+            "source": "Yahoo Finance"
+          },
+          {
+            "title": "Nvidia vs. Alphabet: Both Are Down Big in 2026 -- but Only 1 Is a Buy Right Now",
+            "sentiment": "positive",
+            "date": "2026-03-26",
+            "source": "Motley Fool"
+          },
+          {
+            "title": "OpenAI Backs New AI Startup Seeking Bot Army Breakthroughs",
+            "sentiment": "positive",
+            "date": "2026-03-26",
+            "source": "The Wall Street Journal"
+          }
+        ]
+      },
+      "trend": {
+        "above_200ma": "True",
+        "ma200_gap": 10.54442015720852,
+        "above_50ma": "False",
+        "weekly_rsi": 41.20590520679243
+      },
+      "earnings": {
+        "consecutive_beats": 8,
+        "last_surprise_pct": 6.8,
+        "guidance_direction": "raised",
+        "next_earnings_date": "2026-04-23",
+        "history": [
+          {
+            "date": "2026-02-04",
+            "reported": 2.82,
+            "estimate": 2.64,
+            "surprise_pct": 6.8,
+            "beat": true
+          },
+          {
+            "date": "2025-10-29",
+            "reported": 2.87,
+            "estimate": 2.26,
+            "surprise_pct": 27.0,
+            "beat": true
+          },
+          {
+            "date": "2025-07-23",
+            "reported": 2.31,
+            "estimate": 2.2,
+            "surprise_pct": 5.0,
+            "beat": true
+          },
+          {
+            "date": "2025-04-24",
+            "reported": 2.81,
+            "estimate": 2.01,
+            "surprise_pct": 39.8,
+            "beat": true
+          }
+        ]
+      }
+    },
+    {
+      "ticker": "AMD",
+      "company": "Advanced Micro Devices, Inc.",
+      "sector": "Technology",
+      "industry": "Semiconductors",
+      "price": 220.27,
+      "total_score": 134,
+      "grade": "🔥 강력 매수",
+      "scores": {
+        "institutional": 13,
+        "insider": 0,
+        "fundamental": 35,
+        "news": 10,
+        "analyst": 20,
+        "trend": 21,
+        "earnings": 35
+      },
+      "signals": [
+        "🏦 기관 보유 72.3% (높음)",
+        "⭐ Vanguard Group Inc 보유 중",
+        "📊 적정 PER (20.5)",
+        "📈 매출 성장 34.1%",
+        "💹 이익 성장 217.1%",
+        "🛡️ 낮은 부채비율 (6%)",
+        "📰 뉴스 긍정적 (+2/-0)",
+        "🎯 애널리스트: Buy",
+        "🚀 목표가 상승여력 31.5%",
+        "✅ 200일선 위 (13.3%)",
+        "✅ 골든크로스 상태 (50일 > 200일)",
+        "📊 52주 고점 대비 -16.7%",
+        "🔥 4분기 연속 어닝 비트!",
+        "📈 어닝 서프라이즈 +15.9%",
+        "🚀 가이던스 상향 추정 (Forward EPS +313.3%)"
+      ],
+      "institutional": {
+        "pct": 0.72300005,
+        "top_holders": [
+          {
+            "name": "Vanguard Group Inc",
+            "shares": 158522860,
+            "pct": 0.097200006
+          },
+          {
+            "name": "Blackrock Inc.",
+            "shares": 147528808,
+            "pct": 0.090500005
+          },
+          {
+            "name": "State Street Corporation",
+            "shares": 74919276,
+            "pct": 0.046
+          }
+        ]
+      },
+      "fundamentals": {
+        "pe": 84.71924,
+        "forward_pe": 20.498966,
+        "peg": null,
+        "revenue_growth": 0.341,
+        "earnings_growth": 2.171,
+        "debt_to_equity": 6.359,
+        "profit_margin": 0.12515001,
+        "roe": 0.07082,
+        "dividend_yield": null
+      },
+      "analyst": {
+        "recommendation": "buy",
+        "target_mean": 289.6087,
+        "target_high": 365.0,
+        "num_analysts": 46
+      },
+      "news_summary": {
+        "positive": 2,
+        "negative": 0,
+        "neutral": 8,
+        "recent": [
+          {
+            "title": "AMD, Intel stocks rise on possible price hikes; gold prices climb",
+            "sentiment": "neutral",
+            "date": "2026-03-25",
+            "source": "Yahoo Finance Video"
+          },
+          {
+            "title": "Dow Jones Futures Fall; Stock Market Fades Amid Iran War Deal Hopes, Doubts",
+            "sentiment": "positive",
+            "date": "2026-03-26",
+            "source": "Investor's Business Daily"
+          },
+          {
+            "title": "These Stocks Are Today’s Movers: Arm, Intel, AMD, Firefly Aerospace, Robinhood, JD.com, Sarepta, and",
+            "sentiment": "neutral",
+            "date": "2026-03-25",
+            "source": "Barrons.com"
+          },
+          {
+            "title": "Stock Market Today, March 25: Chip Optimism Boosts Tech Stocks and Markets Rebound on Ceasefire Repo",
+            "sentiment": "neutral",
+            "date": "2026-03-25",
+            "source": "Motley Fool"
+          },
+          {
+            "title": "Stock Market Today, March 25: Advanced Micro Devices Rises After Reports of CPU Price Increases",
+            "sentiment": "neutral",
+            "date": "2026-03-25",
+            "source": "Motley Fool"
+          }
+        ]
+      },
+      "trend": {
+        "above_200ma": "True",
+        "ma200_gap": 13.331371929697134,
+        "above_50ma": "True",
+        "weekly_rsi": 51.8785043306002
+      },
+      "earnings": {
+        "consecutive_beats": 4,
+        "last_surprise_pct": 15.9,
+        "guidance_direction": "raised",
+        "next_earnings_date": "2026-05-05",
+        "history": [
+          {
+            "date": "2026-02-03",
+            "reported": 1.53,
+            "estimate": 1.32,
+            "surprise_pct": 15.9,
+            "beat": true
+          },
+          {
+            "date": "2025-11-04",
+            "reported": 1.2,
+            "estimate": 1.17,
+            "surprise_pct": 2.6,
+            "beat": true
+          },
+          {
+            "date": "2025-08-05",
+            "reported": 0.54,
+            "estimate": -0.05,
+            "surprise_pct": 1180.0,
+            "beat": true
+          },
+          {
+            "date": "2025-05-06",
+            "reported": 0.96,
+            "estimate": 0.93,
+            "surprise_pct": 3.2,
+            "beat": true
+          }
+        ]
+      }
+    },
+    {
+      "ticker": "MSFT",
+      "company": "Microsoft Corporation",
+      "sector": "Technology",
+      "industry": "Software - Infrastructure",
+      "price": 371.04,
+      "total_score": 131,
+      "grade": "🔥 강력 매수",
+      "scores": {
+        "institutional": 13,
+        "insider": 0,
+        "fundamental": 40,
+        "news": 10,
+        "analyst": 25,
+        "trend": 8,
+        "earnings": 35
+      },
+      "signals": [
+        "🏦 기관 보유 76.0% (높음)",
+        "⭐ Vanguard Group Inc 보유 중",
+        "📊 적정 PER (19.7)",
+        "📊 매출 성장 16.7%",
+        "💹 이익 성장 59.8%",
+        "🛡️ 낮은 부채비율 (32%)",
+        "💎 높은 이익률 (39.0%)",
+        "⭐ 높은 ROE (34.4%)",
+        "📰 뉴스 긍정적 (+3/-2)",
+        "🎯 애널리스트: Strong Buy",
+        "🚀 목표가 상승여력 59.4%",
+        "⚠️ 200일선 아래 (-22.4%)",
+        "⚠️ 데드크로스 상태 (50일 < 200일)",
+        "📉 52주 고점 대비 -31.3%",
+        "📍 52주 저점 근접 (저점 대비 +5.4%)",
+        "📉 주간 RSI 과매도 (17.5)",
+        "🔥 8분기 연속 어닝 비트!",
+        "📈 어닝 서프라이즈 +5.6%",
+        "🚀 가이던스 상향 추정 (Forward EPS +17.9%)"
+      ],
+      "institutional": {
+        "pct": 0.76,
+        "top_holders": [
+          {
+            "name": "Vanguard Group Inc",
+            "shares": 717942580,
+            "pct": 0.0967
+          },
+          {
+            "name": "Blackrock Inc.",
+            "shares": 601897495,
+            "pct": 0.081099994
+          },
+          {
+            "name": "State Street Corporation",
+            "shares": 306150608,
+            "pct": 0.041199997
+          }
+        ]
+      },
+      "fundamentals": {
+        "pe": 23.204504,
+        "forward_pe": 19.683308,
+        "peg": null,
+        "revenue_growth": 0.167,
+        "earnings_growth": 0.598,
+        "debt_to_equity": 31.539,
+        "profit_margin": 0.39044,
+        "roe": 0.34390998,
+        "dividend_yield": 0.98
+      },
+      "analyst": {
+        "recommendation": "strong_buy",
+        "target_mean": 591.60284,
+        "target_high": 730.0,
+        "num_analysts": 53
+      },
+      "news_summary": {
+        "positive": 3,
+        "negative": 2,
+        "neutral": 5,
+        "recent": [
+          {
+            "title": "Morning Brief: 3 factors have made for big historical stock market losses",
+            "sentiment": "negative",
+            "date": "2026-03-25",
+            "source": "Yahoo Finance"
+          },
+          {
+            "title": "Nvidia CEO Jensen Huang claims AGI has been 'achieved,' can create billion-dollar businesses",
+            "sentiment": "neutral",
+            "date": "2026-03-24",
+            "source": "Yahoo Finance"
+          },
+          {
+            "title": "How many employees work at IBM in 2026? Its layoffs explained",
+            "sentiment": "negative",
+            "date": "2026-03-25",
+            "source": "TheStreet"
+          },
+          {
+            "title": "MacBook Neo Will Shake Up Google's Chromebooks And Windows PCs? Analyst Says It 'Opens The Door' For",
+            "sentiment": "positive",
+            "date": "2026-03-25",
+            "source": "Benzinga"
+          },
+          {
+            "title": "Here's What Could Send Nvidia Stock to New All-Time Highs",
+            "sentiment": "neutral",
+            "date": "2026-03-25",
+            "source": "Motley Fool"
+          }
+        ]
+      },
+      "trend": {
+        "above_200ma": "False",
+        "ma200_gap": -22.449982487278916,
+        "above_50ma": "False",
+        "weekly_rsi": 17.48361851639683
+      },
+      "earnings": {
+        "consecutive_beats": 8,
+        "last_surprise_pct": 5.6,
+        "guidance_direction": "raised",
+        "next_earnings_date": "2026-04-29",
+        "history": [
+          {
+            "date": "2026-01-28",
+            "reported": 4.14,
+            "estimate": 3.92,
+            "surprise_pct": 5.6,
+            "beat": true
+          },
+          {
+            "date": "2025-10-29",
+            "reported": 3.72,
+            "estimate": 3.66,
+            "surprise_pct": 1.6,
+            "beat": true
+          },
+          {
+            "date": "2025-07-30",
+            "reported": 3.65,
+            "estimate": 3.38,
+            "surprise_pct": 8.0,
+            "beat": true
+          },
+          {
+            "date": "2025-04-30",
+            "reported": 3.46,
+            "estimate": 3.22,
+            "surprise_pct": 7.5,
+            "beat": true
+          }
+        ]
+      }
+    },
+    {
+      "ticker": "TSM",
+      "company": "Taiwan Semiconductor Manufactur",
+      "sector": "Technology",
+      "industry": "Semiconductors",
+      "price": 347.75,
+      "total_score": 131,
+      "grade": "🔥 강력 매수",
+      "scores": {
+        "institutional": 0,
+        "insider": 0,
+        "fundamental": 45,
+        "news": 10,
+        "analyst": 20,
+        "trend": 21,
+        "earnings": 35
+      },
+      "signals": [
+        "📊 적정 PER (19.4)",
+        "📈 매출 성장 20.5%",
+        "💹 이익 성장 35.0%",
+        "🛡️ 낮은 부채비율 (20%)",
+        "💎 높은 이익률 (45.1%)",
+        "⭐ 높은 ROE (35.1%)",
+        "📰 뉴스 긍정적 (+1/-0)",
+        "🎯 애널리스트: Strong Buy",
+        "📈 목표가 상승여력 23.8%",
+        "✅ 200일선 위 (21.9%)",
+        "✅ 골든크로스 상태 (50일 > 200일)",
+        "📊 52주 고점 대비 -10.1%",
+        "🔥 8분기 연속 어닝 비트!",
+        "📈 어닝 서프라이즈 +5.4%",
+        "🚀 가이던스 상향 추정 (Forward EPS +73.3%)"
+      ],
+      "institutional": {
+        "pct": 0.15766,
+        "top_holders": [
+          {
+            "name": "FMR, LLC",
+            "shares": 61131828,
+            "pct": 0.0117999995
+          },
+          {
+            "name": "Sanders Capital, LLC",
+            "shares": 31958360,
+            "pct": 0.0062
+          },
+          {
+            "name": "Capital World Investors",
+            "shares": 27404289,
+            "pct": 0.0053
+          }
+        ]
+      },
+      "fundamentals": {
+        "pe": 33.566605,
+        "forward_pe": 19.36631,
+        "peg": null,
+        "revenue_growth": 0.205,
+        "earnings_growth": 0.35,
+        "debt_to_equity": 19.565,
+        "profit_margin": 0.45099998,
+        "roe": 0.35064,
+        "dividend_yield": 1.01
+      },
+      "analyst": {
+        "recommendation": "strong_buy",
+        "target_mean": 430.65167,
+        "target_high": 520.0,
+        "num_analysts": 18
+      },
+      "news_summary": {
+        "positive": 1,
+        "negative": 0,
+        "neutral": 9,
+        "recent": [
+          {
+            "title": "Arm Rallies After Predicting Booming Sales From New Chip Line",
+            "sentiment": "neutral",
+            "date": "2026-03-25",
+            "source": "Bloomberg"
+          },
+          {
+            "title": "Tesla's $25 Billion Bet Raises A Bigger Question",
+            "sentiment": "positive",
+            "date": "2026-03-25",
+            "source": "GuruFocus.com"
+          },
+          {
+            "title": "Intel Rallies 8% on New Chip Launch and Rising CPU Prices: Is the Turnaround Real?",
+            "sentiment": "neutral",
+            "date": "2026-03-25",
+            "source": "24/7 Wall St."
+          },
+          {
+            "title": "Arm’s AI chip push lifts shares, but analysts question upside potential",
+            "sentiment": "neutral",
+            "date": "2026-03-25",
+            "source": "Proactive"
+          },
+          {
+            "title": "Arm Enters Chip Market With $15 Billion Ambition",
+            "sentiment": "neutral",
+            "date": "2026-03-25",
+            "source": "GuruFocus.com"
+          }
+        ]
+      },
+      "trend": {
+        "above_200ma": "True",
+        "ma200_gap": 21.885511989070693,
+        "above_50ma": "True",
+        "weekly_rsi": 67.34918385171966
+      },
+      "earnings": {
+        "consecutive_beats": 8,
+        "last_surprise_pct": 5.4,
+        "guidance_direction": "raised",
+        "next_earnings_date": "2026-04-16",
+        "history": [
+          {
+            "date": "2026-01-15",
+            "reported": 3.14,
+            "estimate": 2.98,
+            "surprise_pct": 5.4,
+            "beat": true
+          },
+          {
+            "date": "2025-10-15",
+            "reported": 2.92,
+            "estimate": 2.63,
+            "surprise_pct": 11.0,
+            "beat": true
+          },
+          {
+            "date": "2025-07-17",
+            "reported": 2.47,
+            "estimate": 2.31,
+            "surprise_pct": 6.9,
+            "beat": true
+          },
+          {
+            "date": "2025-04-17",
+            "reported": 2.12,
+            "estimate": 2.05,
+            "surprise_pct": 3.4,
+            "beat": true
+          }
+        ]
+      }
+    },
+    {
+      "ticker": "V",
+      "company": "Visa Inc.",
+      "sector": "Financial Services",
+      "industry": "Credit Services",
+      "price": 304.91,
+      "total_score": 129,
+      "grade": "🔥 강력 매수",
+      "scores": {
+        "institutional": 18,
+        "insider": 0,
+        "fundamental": 30,
+        "news": 15,
+        "analyst": 25,
+        "trend": 11,
+        "earnings": 30
+      },
+      "signals": [
+        "🏦 기관 보유 90.8% (매우 높음)",
+        "⭐ Vanguard Group Inc 보유 중",
+        "📊 적정 PER (21.0)",
+        "📊 매출 성장 14.6%",
+        "📊 보통 부채비율 (55%)",
+        "💎 높은 이익률 (50.2%)",
+        "⭐ 높은 ROE (54.0%)",
+        "📰 뉴스 매우 긍정적 (+3/-0)",
+        "🎯 애널리스트: Strong Buy",
+        "🚀 목표가 상승여력 31.3%",
+        "⚠️ 200일선 아래 (-9.6%)",
+        "⚠️ 데드크로스 상태 (50일 < 200일)",
+        "📊 52주 고점 대비 -17.8%",
+        "📍 52주 저점 근접 (저점 대비 +2.0%)",
+        "📉 주간 RSI 과매도 (28.5)",
+        "🔥 6분기 연속 어닝 비트!",
+        "🚀 가이던스 상향 추정 (Forward EPS +36.6%)"
+      ],
+      "institutional": {
+        "pct": 0.90755,
+        "top_holders": [
+          {
+            "name": "Vanguard Group Inc",
+            "shares": 160975832,
+            "pct": 0.0958
+          },
+          {
+            "name": "Blackrock Inc.",
+            "shares": 140150489,
+            "pct": 0.0834
+          },
+          {
+            "name": "State Street Corporation",
+            "shares": 82798151,
+            "pct": 0.0493
+          }
+        ]
+      },
+      "fundamentals": {
+        "pe": 28.656954,
+        "forward_pe": 20.974783,
+        "peg": null,
+        "revenue_growth": 0.146,
+        "earnings_growth": 0.174,
+        "debt_to_equity": 54.612,
+        "profit_margin": 0.50233,
+        "roe": 0.53954,
+        "dividend_yield": 0.88
+      },
+      "analyst": {
+        "recommendation": "strong_buy",
+        "target_mean": 400.2003,
+        "target_high": 450.0,
+        "num_analysts": 35
+      },
+      "news_summary": {
+        "positive": 3,
+        "negative": 0,
+        "neutral": 7,
+        "recent": [
+          {
+            "title": "Visa Canton Role Signals Onchain Settlement And Possible Valuation Upside",
+            "sentiment": "neutral",
+            "date": "2026-03-25",
+            "source": "Simply Wall St."
+          },
+          {
+            "title": "Visa Becomes ‘Super Validator’ For Canton Network",
+            "sentiment": "neutral",
+            "date": "2026-03-25",
+            "source": "CryptoProwl"
+          },
+          {
+            "title": "Can Circle Keep Growing Even if Stablecoins Get Shackled?",
+            "sentiment": "positive",
+            "date": "2026-03-25",
+            "source": "Motley Fool"
+          },
+          {
+            "title": "Visa Becomes First Major Payments Company to Join Canton Network as Super Validator",
+            "sentiment": "neutral",
+            "date": "2026-03-25",
+            "source": "decrypt"
+          },
+          {
+            "title": "Private Equity’s Push for Small Investors Is ‘Scandalous,’ Says Value Maven Chris Davis",
+            "sentiment": "neutral",
+            "date": "2026-03-25",
+            "source": "Barrons.com"
+          }
+        ]
+      },
+      "trend": {
+        "above_200ma": "False",
+        "ma200_gap": -9.607800906372308,
+        "above_50ma": "False",
+        "weekly_rsi": 28.49983063176458
+      },
+      "earnings": {
+        "consecutive_beats": 6,
+        "last_surprise_pct": 1.0,
+        "guidance_direction": "raised",
+        "next_earnings_date": "2026-04-28",
+        "history": [
+          {
+            "date": "2026-01-29",
+            "reported": 3.17,
+            "estimate": 3.14,
+            "surprise_pct": 1.0,
+            "beat": true
+          },
+          {
+            "date": "2025-10-28",
+            "reported": 2.98,
+            "estimate": 2.97,
+            "surprise_pct": 0.3,
+            "beat": true
+          },
+          {
+            "date": "2025-07-29",
+            "reported": 2.98,
+            "estimate": 2.85,
+            "surprise_pct": 4.6,
+            "beat": true
+          },
+          {
+            "date": "2025-04-29",
+            "reported": 2.76,
+            "estimate": 2.68,
+            "surprise_pct": 3.0,
+            "beat": true
+          }
+        ]
+      }
+    },
+    {
+      "ticker": "BDX",
+      "company": "Becton, Dickinson and Company",
+      "sector": "Healthcare",
+      "industry": "Medical Instruments & Supplies",
+      "price": 158.27,
+      "total_score": 129,
+      "grade": "🔥 강력 매수",
+      "scores": {
+        "institutional": 18,
+        "insider": 0,
+        "fundamental": 25,
+        "news": 10,
+        "analyst": 15,
+        "trend": 21,
+        "earnings": 40
+      },
+      "signals": [
+        "🏦 기관 보유 96.1% (매우 높음)",
+        "⭐ Vanguard Group Inc 보유 중",
+        "💰 저PER (11.7)",
+        "💹 이익 성장 28.6%",
+        "📊 보통 부채비율 (77%)",
+        "📰 뉴스 긍정적 (+4/-3)",
+        "🎯 애널리스트: Buy",
+        "📈 목표가 상승여력 23.9%",
+        "✅ 200일선 위 (5.3%)",
+        "✅ 골든크로스 상태 (50일 > 200일)",
+        "📊 52주 고점 대비 -14.1%",
+        "🔥 8분기 연속 어닝 비트!",
+        "💥 어닝 서프라이즈 +415.4% (대폭 상회)",
+        "🚀 가이던스 상향 추정 (Forward EPS +120.4%)"
+      ],
+      "institutional": {
+        "pct": 0.96081,
+        "top_holders": [
+          {
+            "name": "Vanguard Group Inc",
+            "shares": 36678939,
+            "pct": 0.1288
+          },
+          {
+            "name": "Blackrock Inc.",
+            "shares": 27648705,
+            "pct": 0.0971
+          },
+          {
+            "name": "T. Rowe Price Investment Management, Inc.",
+            "shares": 14378219,
+            "pct": 0.0505
+          }
+        ]
+      },
+      "fundamentals": {
+        "pe": 25.818924,
+        "forward_pe": 11.712148,
+        "peg": null,
+        "revenue_growth": 0.016,
+        "earnings_growth": 0.286,
+        "debt_to_equity": 77.284,
+        "profit_margin": 0.08014,
+        "roe": 0.0696,
+        "dividend_yield": 2.65
+      },
+      "analyst": {
+        "recommendation": "buy",
+        "target_mean": 196.08333,
+        "target_high": 225.0,
+        "num_analysts": 12
+      },
+      "news_summary": {
+        "positive": 4,
+        "negative": 3,
+        "neutral": 3,
+        "recent": [
+          {
+            "title": "3 Beaten-Down Dividend Aristocrats to Scoop Up While Wall Street Chases AI Stocks Into a Cliff",
+            "sentiment": "positive",
+            "date": "2026-03-25",
+            "source": "24/7 Wall St."
+          },
+          {
+            "title": "Argus Lowers its Price Target on Becton, Dickinson and Company (BDX) to $180 from $230",
+            "sentiment": "neutral",
+            "date": "2026-03-25",
+            "source": "Insider Monkey"
+          },
+          {
+            "title": "Is Edwards Lifesciences Corporation (EW) A Good Stock To Buy Now?",
+            "sentiment": "positive",
+            "date": "2026-03-21",
+            "source": "Insider Monkey"
+          },
+          {
+            "title": "Should You Hold or Sell HOLX Stock as It Nears the End of Public Phase?",
+            "sentiment": "negative",
+            "date": "2026-03-18",
+            "source": "Zacks"
+          },
+          {
+            "title": "3 Reasons BDX is Risky and 1 Stock to Buy Instead",
+            "sentiment": "positive",
+            "date": "2026-03-17",
+            "source": "StockStory"
+          }
+        ]
+      },
+      "trend": {
+        "above_200ma": "True",
+        "ma200_gap": 5.313051977085934,
+        "above_50ma": "False",
+        "weekly_rsi": 53.59913077777832
+      },
+      "earnings": {
+        "consecutive_beats": 8,
+        "last_surprise_pct": 415.4,
+        "guidance_direction": "raised",
+        "next_earnings_date": "2026-05-07",
+        "history": [
+          {
+            "date": "2026-02-09",
+            "reported": 1.34,
+            "estimate": 0.26,
+            "surprise_pct": 415.4,
+            "beat": true
+          },
+          {
+            "date": "2025-11-06",
+            "reported": 3.96,
+            "estimate": 3.91,
+            "surprise_pct": 1.3,
+            "beat": true
+          },
+          {
+            "date": "2025-08-07",
+            "reported": 3.68,
+            "estimate": 3.4,
+            "surprise_pct": 8.2,
+            "beat": true
+          },
+          {
+            "date": "2025-05-01",
+            "reported": 3.35,
+            "estimate": 3.28,
+            "surprise_pct": 2.1,
+            "beat": true
+          }
+        ]
+      }
+    },
+    {
+      "ticker": "NEE",
+      "company": "NextEra Energy, Inc.",
+      "sector": "Utilities",
+      "industry": "Utilities - Regulated Electric",
+      "price": 91.16,
+      "total_score": 128,
+      "grade": "🔥 강력 매수",
+      "scores": {
+        "institutional": 18,
+        "insider": 0,
+        "fundamental": 30,
+        "news": 15,
+        "analyst": 10,
+        "trend": 25,
+        "earnings": 30
+      },
+      "signals": [
+        "🏦 기관 보유 84.7% (매우 높음)",
+        "⭐ Vanguard Group Inc 보유 중",
+        "📊 적정 PER (20.8)",
+        "📈 매출 성장 20.7%",
+        "💹 이익 성장 26.0%",
+        "💎 높은 이익률 (24.9%)",
+        "📰 뉴스 매우 긍정적 (+4/-0)",
+        "🎯 애널리스트: Buy",
+        "✅ 200일선 위 (14.5%)",
+        "✅ 골든크로스 상태 (50일 > 200일)",
+        "🔝 52주 고점 근접 (-4.1%)",
+        "🔥 4분기 연속 어닝 비트!",
+        "🚀 가이던스 상향 추정 (Forward EPS +32.5%)"
+      ],
+      "institutional": {
+        "pct": 0.84656996,
+        "top_holders": [
+          {
+            "name": "Vanguard Group Inc",
+            "shares": 216033697,
+            "pct": 0.1037
+          },
+          {
+            "name": "Blackrock Inc.",
+            "shares": 176800374,
+            "pct": 0.0849
+          },
+          {
+            "name": "State Street Corporation",
+            "shares": 118582782,
+            "pct": 0.056900002
+          }
+        ]
+      },
+      "fundamentals": {
+        "pe": 27.624245,
+        "forward_pe": 20.844433,
+        "peg": null,
+        "revenue_growth": 0.207,
+        "earnings_growth": 0.26,
+        "debt_to_equity": 146.242,
+        "profit_margin": 0.24934,
+        "roe": 0.083739996,
+        "dividend_yield": 2.73
+      },
+      "analyst": {
+        "recommendation": "buy",
+        "target_mean": 93.96364,
+        "target_high": 111.0,
+        "num_analysts": 22
+      },
+      "news_summary": {
+        "positive": 4,
+        "negative": 0,
+        "neutral": 6,
+        "recent": [
+          {
+            "title": "Zacks Investment Ideas feature highlights: NextEra Energy",
+            "sentiment": "neutral",
+            "date": "2026-03-25",
+            "source": "Zacks"
+          },
+          {
+            "title": "NextEra Energy Links AI Factories To Grid As Valuation Stays Rich",
+            "sentiment": "neutral",
+            "date": "2026-03-25",
+            "source": "Simply Wall St."
+          },
+          {
+            "title": "Prediction: The Next Phase of Artificial Intelligence (AI) Won't Be About Chips. Here are the Stocks",
+            "sentiment": "positive",
+            "date": "2026-03-25",
+            "source": "Motley Fool"
+          },
+          {
+            "title": "NextEra's Federal Energy Deal Could Power Its Stock to Higher Highs",
+            "sentiment": "positive",
+            "date": "2026-03-24",
+            "source": "Zacks"
+          },
+          {
+            "title": "Wall Street Thinks These 5 Stocks Could Be the Next Big Winners",
+            "sentiment": "positive",
+            "date": "2026-03-24",
+            "source": "24/7 Wall St."
+          }
+        ]
+      },
+      "trend": {
+        "above_200ma": "True",
+        "ma200_gap": 14.492162543318479,
+        "above_50ma": "True",
+        "weekly_rsi": 70.60607870807476
+      },
+      "earnings": {
+        "consecutive_beats": 4,
+        "last_surprise_pct": 1.9,
+        "guidance_direction": "raised",
+        "next_earnings_date": "2026-04-22",
+        "history": [
+          {
+            "date": "2026-01-27",
+            "reported": 0.54,
+            "estimate": 0.53,
+            "surprise_pct": 1.9,
+            "beat": true
+          },
+          {
+            "date": "2025-10-28",
+            "reported": 1.13,
+            "estimate": 1.02,
+            "surprise_pct": 10.8,
+            "beat": true
+          },
+          {
+            "date": "2025-07-23",
+            "reported": 1.05,
+            "estimate": 1.01,
+            "surprise_pct": 4.0,
+            "beat": true
+          },
+          {
+            "date": "2025-04-22",
+            "reported": 0.99,
+            "estimate": 0.98,
+            "surprise_pct": 1.0,
+            "beat": true
+          }
+        ]
+      }
+    },
+    {
+      "ticker": "AMAT",
+      "company": "Applied Materials, Inc.",
+      "sector": "Technology",
+      "industry": "Semiconductor Equipment & Materials",
+      "price": 369.34,
+      "total_score": 128,
+      "grade": "🔥 강력 매수",
+      "scores": {
+        "institutional": 18,
+        "insider": 0,
+        "fundamental": 25,
+        "news": 15,
+        "analyst": 10,
+        "trend": 25,
+        "earnings": 35
+      },
+      "signals": [
+        "🏦 기관 보유 85.5% (매우 높음)",
+        "⭐ Vanguard Group Inc 보유 중",
+        "📉 매출 감소 -2.1%",
+        "💹 이익 성장 75.2%",
+        "🛡️ 낮은 부채비율 (33%)",
+        "💎 높은 이익률 (27.8%)",
+        "⭐ 높은 ROE (38.9%)",
+        "📰 뉴스 매우 긍정적 (+4/-0)",
+        "🎯 애널리스트: Buy",
+        "✅ 200일선 위 (51.8%)",
+        "✅ 골든크로스 상태 (50일 > 200일)",
+        "🔝 52주 고점 근접 (-6.5%)",
+        "🔥 5분기 연속 어닝 비트!",
+        "📈 어닝 서프라이즈 +7.7%",
+        "🚀 가이던스 상향 추정 (Forward EPS +42.0%)"
+      ],
+      "institutional": {
+        "pct": 0.85538,
+        "top_holders": [
+          {
+            "name": "Vanguard Group Inc",
+            "shares": 76779340,
+            "pct": 0.0967
+          },
+          {
+            "name": "Blackrock Inc.",
+            "shares": 75259089,
+            "pct": 0.094799995
+          },
+          {
+            "name": "State Street Corporation",
+            "shares": 37930623,
+            "pct": 0.0478
+          }
+        ]
+      },
+      "fundamentals": {
+        "pe": 37.881023,
+        "forward_pe": 26.682386,
+        "peg": null,
+        "revenue_growth": -0.021,
+        "earnings_growth": 0.752,
+        "debt_to_equity": 33.108,
+        "profit_margin": 0.27784002,
+        "roe": 0.38863,
+        "dividend_yield": 0.57
+      },
+      "analyst": {
+        "recommendation": "buy",
+        "target_mean": 410.625,
+        "target_high": 470.0,
+        "num_analysts": 32
+      },
+      "news_summary": {
+        "positive": 4,
+        "negative": 0,
+        "neutral": 6,
+        "recent": [
+          {
+            "title": "Why QQQM Is Riskier Than Its Low-Cost, Set-It-and-Forget-It Reputation Suggests",
+            "sentiment": "neutral",
+            "date": "2026-03-25",
+            "source": "24/7 Wall St."
+          },
+          {
+            "title": "Micron Falls as Q2 Earnings and AI Compression Put Memory Stocks on Edge",
+            "sentiment": "neutral",
+            "date": "2026-03-25",
+            "source": "24/7 Wall St."
+          },
+          {
+            "title": "Applied Materials (AMAT) Surged on Improving Wafer-Fab Spending Visibility",
+            "sentiment": "positive",
+            "date": "2026-03-25",
+            "source": "Insider Monkey"
+          },
+          {
+            "title": "Can High-NA EUV Adoption Accelerate ASML's Long-Term Revenue Growth?",
+            "sentiment": "positive",
+            "date": "2026-03-25",
+            "source": "Zacks"
+          },
+          {
+            "title": "Wall Street Bulls Look Optimistic About Applied Materials (AMAT): Should You Buy?",
+            "sentiment": "positive",
+            "date": "2026-03-25",
+            "source": "Zacks"
+          }
+        ]
+      },
+      "trend": {
+        "above_200ma": "True",
+        "ma200_gap": 51.82427896207401,
+        "above_50ma": "True",
+        "weekly_rsi": 75.29042419993124
+      },
+      "earnings": {
+        "consecutive_beats": 5,
+        "last_surprise_pct": 7.7,
+        "guidance_direction": "raised",
+        "next_earnings_date": "2026-05-14",
+        "history": [
+          {
+            "date": "2026-02-12",
+            "reported": 2.38,
+            "estimate": 2.21,
+            "surprise_pct": 7.7,
+            "beat": true
+          },
+          {
+            "date": "2025-11-13",
+            "reported": 2.17,
+            "estimate": 2.09,
+            "surprise_pct": 3.8,
+            "beat": true
+          },
+          {
+            "date": "2025-08-14",
+            "reported": 2.48,
+            "estimate": 2.36,
+            "surprise_pct": 5.1,
+            "beat": true
+          },
+          {
+            "date": "2025-05-15",
+            "reported": 2.39,
+            "estimate": 2.31,
+            "surprise_pct": 3.5,
+            "beat": true
+          }
+        ]
+      }
+    },
+    {
+      "ticker": "MPWR",
+      "company": "Monolithic Power Systems, Inc.",
+      "sector": "Technology",
+      "industry": "Semiconductors",
+      "price": 1118.66,
+      "total_score": 128,
+      "grade": "🔥 강력 매수",
+      "scores": {
+        "institutional": 18,
+        "insider": 0,
+        "fundamental": 20,
+        "news": 15,
+        "analyst": 20,
+        "trend": 25,
+        "earnings": 30
+      },
+      "signals": [
+        "🏦 기관 보유 101.8% (매우 높음)",
+        "⭐ Vanguard Group Inc 보유 중",
+        "⚠️ 고PER (43.3)",
+        "📈 매출 성장 20.8%",
+        "🛡️ 낮은 부채비율 (1%)",
+        "💎 높은 이익률 (22.3%)",
+        "📰 뉴스 매우 긍정적 (+7/-1)",
+        "🎯 애널리스트: Strong Buy",
+        "📈 목표가 상승여력 18.7%",
+        "✅ 200일선 위 (20.1%)",
+        "✅ 골든크로스 상태 (50일 > 200일)",
+        "🔝 52주 고점 근접 (-9.2%)",
+        "🔥 8분기 연속 어닝 비트!",
+        "🚀 가이던스 상향 추정 (Forward EPS +101.0%)"
+      ],
+      "institutional": {
+        "pct": 1.01758,
+        "top_holders": [
+          {
+            "name": "Vanguard Group Inc",
+            "shares": 6034394,
+            "pct": 0.1229
+          },
+          {
+            "name": "Blackrock Inc.",
+            "shares": 5962391,
+            "pct": 0.121400006
+          },
+          {
+            "name": "FMR, LLC",
+            "shares": 3977008,
+            "pct": 0.081
+          }
+        ]
+      },
+      "fundamentals": {
+        "pe": 86.987564,
+        "forward_pe": 43.283253,
+        "peg": null,
+        "revenue_growth": 0.208,
+        "earnings_growth": -0.862,
+        "debt_to_equity": 0.683,
+        "profit_margin": 0.22272,
+        "roe": 0.19173999,
+        "dividend_yield": 0.72
+      },
+      "analyst": {
+        "recommendation": "strong_buy",
+        "target_mean": 1328.2858,
+        "target_high": 1500.0,
+        "num_analysts": 14
+      },
+      "news_summary": {
+        "positive": 7,
+        "negative": 1,
+        "neutral": 2,
+        "recent": [
+          {
+            "title": "Stock Market Today: Small Caps, Techs Lead Gains; This Nuclear Play Breaks Out But Micron Sinks (Liv",
+            "sentiment": "neutral",
+            "date": "2026-03-25",
+            "source": "Investor's Business Daily"
+          },
+          {
+            "title": "Insiders At Monolithic Power Systems Sold US$383m In Stock, Alluding To Potential Weakness",
+            "sentiment": "negative",
+            "date": "2026-03-25",
+            "source": "Simply Wall St."
+          },
+          {
+            "title": "1 of Wall Street’s Favorite Stock to Target This Week and 2 We Avoid",
+            "sentiment": "neutral",
+            "date": "2026-03-24",
+            "source": "StockStory"
+          },
+          {
+            "title": "Take the Zacks Approach to Beat the Markets: LiveOne, Micron, Clorox in Focus",
+            "sentiment": "positive",
+            "date": "2026-03-23",
+            "source": "Zacks"
+          },
+          {
+            "title": "Monolithic Power (MPWR) Gained as Its Blackwell Platform Fared Stronger",
+            "sentiment": "positive",
+            "date": "2026-03-23",
+            "source": "Insider Monkey"
+          }
+        ]
+      },
+      "trend": {
+        "above_200ma": "True",
+        "ma200_gap": 20.128814839234035,
+        "above_50ma": "True",
+        "weekly_rsi": 63.49465294323794
+      },
+      "earnings": {
+        "consecutive_beats": 8,
+        "last_surprise_pct": 1.1,
+        "guidance_direction": "raised",
+        "next_earnings_date": "2026-04-30",
+        "history": [
+          {
+            "date": "2026-02-05",
+            "reported": 4.79,
+            "estimate": 4.74,
+            "surprise_pct": 1.1,
+            "beat": true
+          },
+          {
+            "date": "2025-10-30",
+            "reported": 4.73,
+            "estimate": 4.64,
+            "surprise_pct": 1.9,
+            "beat": true
+          },
+          {
+            "date": "2025-07-31",
+            "reported": 4.21,
+            "estimate": 4.12,
+            "surprise_pct": 2.2,
+            "beat": true
+          },
+          {
+            "date": "2025-05-01",
+            "reported": 4.04,
+            "estimate": 4.0,
+            "surprise_pct": 1.0,
+            "beat": true
+          }
+        ]
+      }
+    },
+    {
+      "ticker": "COHR",
+      "company": "Coherent Corp.",
+      "sector": "Technology",
+      "industry": "Scientific & Technical Instruments",
+      "price": 272.04,
+      "total_score": 128,
+      "grade": "🔥 강력 매수",
+      "scores": {
+        "institutional": 18,
+        "insider": 0,
+        "fundamental": 25,
+        "news": 15,
+        "analyst": 10,
+        "trend": 25,
+        "earnings": 35
+      },
+      "signals": [
+        "🏦 기관 보유 87.6% (매우 높음)",
+        "⭐ Vanguard Group Inc 보유 중",
+        "📊 매출 성장 17.5%",
+        "💹 이익 성장 73.0%",
+        "🛡️ 낮은 부채비율 (40%)",
+        "📰 뉴스 매우 긍정적 (+5/-0)",
+        "🎯 애널리스트: Buy",
+        "✅ 200일선 위 (80.1%)",
+        "✅ 골든크로스 상태 (50일 > 200일)",
+        "🔝 52주 고점 근접 (-9.0%)",
+        "🔥 8분기 연속 어닝 비트!",
+        "📈 어닝 서프라이즈 +6.6%",
+        "🚀 가이던스 상향 추정 (Forward EPS +635.1%)"
+      ],
+      "institutional": {
+        "pct": 0.87632006,
+        "top_holders": [
+          {
+            "name": "FMR, LLC",
+            "shares": 23607003,
+            "pct": 0.1259
+          },
+          {
+            "name": "Vanguard Group Inc",
+            "shares": 16127729,
+            "pct": 0.086
+          },
+          {
+            "name": "Blackrock Inc.",
+            "shares": 14453877,
+            "pct": 0.0771
+          }
+        ]
+      },
+      "fundamentals": {
+        "pe": 269.34656,
+        "forward_pe": 36.642284,
+        "peg": null,
+        "revenue_growth": 0.175,
+        "earnings_growth": 0.73,
+        "debt_to_equity": 39.901,
+        "profit_margin": 0.04657,
+        "roe": 0.032360002,
+        "dividend_yield": null
+      },
+      "analyst": {
+        "recommendation": "buy",
+        "target_mean": 284.25,
+        "target_high": 375.0,
+        "num_analysts": 20
+      },
+      "news_summary": {
+        "positive": 5,
+        "negative": 0,
+        "neutral": 5,
+        "recent": [
+          {
+            "title": "With Lumentum (LITE) And Coherent (COHR) Surging, Onto Innovation (ONTO) Could Be Next",
+            "sentiment": "positive",
+            "date": "2026-03-25",
+            "source": "24/7 Wall St."
+          },
+          {
+            "title": "Are Business Services Stocks Lagging  COHERENT CORP (COHR) This Year?",
+            "sentiment": "neutral",
+            "date": "2026-03-25",
+            "source": "Zacks"
+          },
+          {
+            "title": "Coherent (COHR) Climbs 6.78% on S&P 500 Addition",
+            "sentiment": "neutral",
+            "date": "2026-03-25",
+            "source": "Insider Monkey"
+          },
+          {
+            "title": "Tower Semiconductor (TSEM) Is Up 31.2% After Expanding Its AI Data Center Chip Portfolio",
+            "sentiment": "positive",
+            "date": "2026-03-25",
+            "source": "Simply Wall St."
+          },
+          {
+            "title": "1 Top Stock to Buy as Nvidia Doubles Down on Copper",
+            "sentiment": "positive",
+            "date": "2026-03-24",
+            "source": "Barchart"
+          }
+        ]
+      },
+      "trend": {
+        "above_200ma": "True",
+        "ma200_gap": 80.05222648644572,
+        "above_50ma": "True",
+        "weekly_rsi": 73.16601558287601
+      },
+      "earnings": {
+        "consecutive_beats": 8,
+        "last_surprise_pct": 6.6,
+        "guidance_direction": "raised",
+        "next_earnings_date": "2026-05-06",
+        "history": [
+          {
+            "date": "2026-02-04",
+            "reported": 1.29,
+            "estimate": 1.21,
+            "surprise_pct": 6.6,
+            "beat": true
+          },
+          {
+            "date": "2025-11-05",
+            "reported": 1.16,
+            "estimate": 1.04,
+            "surprise_pct": 11.5,
+            "beat": true
+          },
+          {
+            "date": "2025-08-13",
+            "reported": 1.0,
+            "estimate": 0.92,
+            "surprise_pct": 8.7,
+            "beat": true
+          },
+          {
+            "date": "2025-05-07",
+            "reported": 0.91,
+            "estimate": 0.86,
+            "surprise_pct": 5.8,
+            "beat": true
+          }
+        ]
+      }
+    },
+    {
+      "ticker": "META",
+      "company": "Meta Platforms, Inc.",
+      "sector": "Communication Services",
+      "industry": "Internet Content & Information",
+      "price": 594.89,
+      "total_score": 125,
+      "grade": "🔥 강력 매수",
+      "scores": {
+        "institutional": 13,
+        "insider": 0,
+        "fundamental": 40,
+        "news": 10,
+        "analyst": 25,
+        "trend": 2,
+        "earnings": 35
+      },
+      "signals": [
+        "🏦 기관 보유 78.7% (높음)",
+        "⭐ Vanguard Group Inc 보유 중",
+        "📊 적정 PER (16.6)",
+        "📈 매출 성장 23.8%",
+        "🛡️ 낮은 부채비율 (39%)",
+        "💎 높은 이익률 (30.1%)",
+        "⭐ 높은 ROE (30.2%)",
+        "📰 뉴스 긍정적 (+2/-1)",
+        "🎯 애널리스트: Strong Buy",
+        "🚀 목표가 상승여력 45.2%",
+        "⚠️ 200일선 아래 (-13.5%)",
+        "⚠️ 데드크로스 상태 (50일 < 200일)",
+        "📊 주간 RSI 낮음 (39.6)",
+        "🔥 8분기 연속 어닝 비트!",
+        "📈 어닝 서프라이즈 +8.6%",
+        "🚀 가이던스 상향 추정 (Forward EPS +52.3%)"
+      ],
+      "institutional": {
+        "pct": 0.78723,
+        "top_holders": [
+          {
+            "name": "Vanguard Group Inc",
+            "shares": 199995630,
+            "pct": 0.5841
+          },
+          {
+            "name": "Blackrock Inc.",
+            "shares": 171505090,
+            "pct": 0.50090003
+          },
+          {
+            "name": "FMR, LLC",
+            "shares": 122341612,
+            "pct": 0.35729998
+          }
+        ]
+      },
+      "fundamentals": {
+        "pe": 25.250002,
+        "forward_pe": 16.579988,
+        "peg": null,
+        "revenue_growth": 0.238,
+        "earnings_growth": 0.107,
+        "debt_to_equity": 39.164,
+        "profit_margin": 0.30084,
+        "roe": 0.30238,
+        "dividend_yield": 0.35
+      },
+      "analyst": {
+        "recommendation": "strong_buy",
+        "target_mean": 863.62933,
+        "target_high": 1144.0,
+        "num_analysts": 60
+      },
+      "news_summary": {
+        "positive": 2,
+        "negative": 1,
+        "neutral": 7,
+        "recent": [
+          {
+            "title": "Meta, Google found liable in social media addiction case",
+            "sentiment": "neutral",
+            "date": "2026-03-25",
+            "source": "Yahoo Finance Video"
+          },
+          {
+            "title": "Disney's OpenAI partnership may shift, Meta's reported layoffs",
+            "sentiment": "positive",
+            "date": "2026-03-25",
+            "source": "Yahoo Finance Video"
+          },
+          {
+            "title": "Arm stock skyrockets on chip news, On Holding CEO to step down",
+            "sentiment": "neutral",
+            "date": "2026-03-25",
+            "source": "Yahoo Finance Video"
+          },
+          {
+            "title": "Arm Holdings (ARM) Climbs 16% on AI Chip Foray, Earns Meta Backing",
+            "sentiment": "neutral",
+            "date": "2026-03-26",
+            "source": "Insider Monkey"
+          },
+          {
+            "title": "OpenAI Backs New AI Startup Seeking Bot Army Breakthroughs",
+            "sentiment": "positive",
+            "date": "2026-03-26",
+            "source": "The Wall Street Journal"
+          }
+        ]
+      },
+      "trend": {
+        "above_200ma": "False",
+        "ma200_gap": -13.5433900791638,
+        "above_50ma": "False",
+        "weekly_rsi": 39.592695583709826
+      },
+      "earnings": {
+        "consecutive_beats": 8,
+        "last_surprise_pct": 8.6,
+        "guidance_direction": "raised",
+        "next_earnings_date": "2026-04-29",
+        "history": [
+          {
+            "date": "2026-01-28",
+            "reported": 8.88,
+            "estimate": 8.18,
+            "surprise_pct": 8.6,
+            "beat": true
+          },
+          {
+            "date": "2025-10-29",
+            "reported": 7.25,
+            "estimate": 6.67,
+            "surprise_pct": 8.7,
+            "beat": true
+          },
+          {
+            "date": "2025-07-30",
+            "reported": 7.14,
+            "estimate": 5.86,
+            "surprise_pct": 21.8,
+            "beat": true
+          },
+          {
+            "date": "2025-04-30",
+            "reported": 6.43,
+            "estimate": 5.21,
+            "surprise_pct": 23.4,
+            "beat": true
+          }
+        ]
+      }
+    }
+  ]
+}
