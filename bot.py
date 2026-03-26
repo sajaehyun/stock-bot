@@ -565,7 +565,7 @@ def compute_indicators(ticker: str) -> dict | None:
 # 모멘텀 점수
 # ═══════════════════════════════════════════════════════════════════
 
-def compute_score_and_status(ind: dict, fv: dict) -> dict:
+def compute_score_and_status(ind: dict, fv: dict, ticker: str = "") -> dict:
     raw = 0; signals = []
     rsi = ind.get("rsi", 50)
     if rsi < 30:     raw += 20; signals.append("✅ RSI 과매도")
@@ -608,6 +608,16 @@ def compute_score_and_status(ind: dict, fv: dict) -> dict:
 
     fc = fv.get("finviz_change", 0)
     if fc >= 5: raw += 5; signals.append(f"✅ Finviz +{fc}%")
+    # ── 어닝/옵션 단기 반영 ──
+    if ticker:
+        eq = _quick_earnings_check(ticker)
+        oq = _quick_options_check(ticker)
+        raw += eq["earnings_adj"]
+        raw += oq["options_adj"]
+        signals.extend(eq["earnings_signals"])
+        signals.extend(oq["options_signals"])
+        ind["_earnings"] = eq
+        ind["_options"] = oq
 
     score = normalize_score(raw)
     if score >= 65:   entry = "🟢"; ek = "green"
@@ -620,8 +630,132 @@ def compute_score_and_status(ind: dict, fv: dict) -> dict:
 # ═══════════════════════════════════════════════════════════════════
 # 선행 신호 점수
 # ═══════════════════════════════════════════════════════════════════
+# ═══════════════════════════════════════════════════════════════════
+# 단기용 어닝 경량 분석
+# ═══════════════════════════════════════════════════════════════════
 
-def compute_presignal_score(ind: dict) -> dict:
+def _quick_earnings_check(ticker: str) -> dict:
+    """단기 매매용 어닝 경량 체크 (임박 여부, 최근 서프라이즈, 시장 반응)"""
+    result = {
+        "earnings_near": False,
+        "days_to_earnings": None,
+        "last_beat": None,
+        "last_surprise_pct": None,
+        "post_reaction_1d": None,
+        "earnings_signals": [],
+        "earnings_adj": 0,
+    }
+    if not _YF_AVAILABLE:
+        return result
+    try:
+        t = yf.Ticker(ticker)
+        ed = t.earnings_dates
+        if ed is None or ed.empty:
+            return result
+
+        from datetime import date
+        today = date.today()
+
+        # 다음 어닝 (미래)
+        future = ed[ed["Reported EPS"].isna()]
+        if not future.empty:
+            next_date = future.index[0].date()
+            days = (next_date - today).days
+            result["days_to_earnings"] = days
+            if 0 <= days <= 7:
+                result["earnings_near"] = True
+                result["earnings_signals"].append(f"⚡ 어닝 {days}일 후 ({next_date})")
+                result["earnings_adj"] += 5  # 변동성 기회
+
+        # 최근 실적
+        past = ed.dropna(subset=["Reported EPS"])
+        if not past.empty:
+            row = past.iloc[0]
+            reported = float(row.get("Reported EPS", 0))
+            estimate = float(row.get("EPS Estimate", 0)) if row.get("EPS Estimate") is not None else None
+            if estimate is not None and estimate != 0:
+                result["last_beat"] = reported > estimate
+                result["last_surprise_pct"] = round((reported - estimate) / abs(estimate) * 100, 1)
+
+                if result["last_beat"] and result["last_surprise_pct"] > 10:
+                    result["earnings_signals"].append(f"🔥 최근 어닝 +{result['last_surprise_pct']}% 서프라이즈")
+                    result["earnings_adj"] += 8
+                elif result["last_beat"]:
+                    result["earnings_signals"].append(f"✅ 최근 어닝 비트 (+{result['last_surprise_pct']}%)")
+                    result["earnings_adj"] += 3
+                elif result["last_surprise_pct"] < -10:
+                    result["earnings_signals"].append(f"📉 최근 어닝 미스 ({result['last_surprise_pct']}%)")
+                    result["earnings_adj"] -= 8
+
+            # 어닝 후 1일 반응
+            try:
+                hist = t.history(period="3mo")
+                if hist is not None and not hist.empty:
+                    import pandas as _pd
+                    e_date = _pd.to_datetime(past.index[0]).normalize()
+                    after = hist.index[hist.index >= e_date]
+                    before = hist.index[hist.index < e_date]
+                    if len(after) >= 1 and len(before) >= 1:
+                        r1d = round((float(hist.loc[after[0], "Close"]) - float(hist.loc[before[-1], "Close"])) / float(hist.loc[before[-1], "Close"]) * 100, 2)
+                        result["post_reaction_1d"] = r1d
+                        if result["last_beat"] and r1d < -3:
+                            result["earnings_signals"].append(f"⚠️ 비트에도 -{abs(r1d)}% 하락 (sell the news)")
+                            result["earnings_adj"] -= 5
+                        elif not result["last_beat"] and r1d > 3:
+                            result["earnings_signals"].append(f"🔥 미스에도 +{r1d}% 상승 (악재 선반영)")
+                            result["earnings_adj"] += 5
+            except Exception:
+                pass
+
+    except Exception as e:
+        log.debug(f"[{ticker}] 어닝 경량 체크 실패: {e}")
+
+    return result
+
+
+def _quick_options_check(ticker: str) -> dict:
+    """단기용 풋/콜 비율 경량 체크"""
+    result = {
+        "put_call_ratio": None,
+        "options_signals": [],
+        "options_adj": 0,
+    }
+    if not _YF_AVAILABLE:
+        return result
+    try:
+        t = yf.Ticker(ticker)
+        exps = t.options
+        if not exps:
+            return result
+
+        total_put = 0
+        total_call = 0
+        for exp in exps[:1]:  # 가장 가까운 만기 1개만 (속도)
+            chain = t.option_chain(exp)
+            if chain.calls is not None and not chain.calls.empty:
+                total_call += chain.calls["volume"].fillna(0).sum()
+            if chain.puts is not None and not chain.puts.empty:
+                total_put += chain.puts["volume"].fillna(0).sum()
+
+        if total_call > 0:
+            pcr = round(total_put / total_call, 2)
+            result["put_call_ratio"] = pcr
+
+            if pcr > 1.5:
+                result["options_signals"].append(f"🔥 P/C {pcr} → 극단적 공포 (역발상)")
+                result["options_adj"] += 8
+            elif pcr > 1.0:
+                result["options_signals"].append(f"✅ P/C {pcr} → 약세 심리")
+                result["options_adj"] += 3
+            elif pcr < 0.4:
+                result["options_signals"].append(f"⚠️ P/C {pcr} → 과도한 낙관")
+                result["options_adj"] -= 5
+
+    except Exception as e:
+        log.debug(f"[{ticker}] 옵션 경량 체크 실패: {e}")
+
+    return result
+def compute_presignal_score(ind: dict, ticker: str = "") -> dict:
     raw = 0; signals = []; price = ind.get("price", 0)
 
     # 1. 변동성 수축
@@ -673,6 +807,16 @@ def compute_presignal_score(ind: dict) -> dict:
     elif c1d > 3:    raw -= 8;  signals.append("⚠️ 당일 3%+ 상승")
     if rsi > 70:     raw -= 15; signals.append("⚠️ RSI 과열 → 선행 부적합")
     elif rsi > 60:   raw -= 5;  signals.append("⚠️ RSI 중립 상단")
+    # ── 어닝/옵션 선행 반영 ──
+    if ticker:
+        eq = _quick_earnings_check(ticker)
+        oq = _quick_options_check(ticker)
+        raw += eq["earnings_adj"]
+        raw += oq["options_adj"]
+        signals.extend(eq["earnings_signals"])
+        signals.extend(oq["options_signals"])
+        ind["_earnings"] = eq
+        ind["_options"] = oq
 
     score = max(0, min(100, raw))
     if score >= 60:   g = "🔥 강력"; gk = "strong"
@@ -694,7 +838,7 @@ def analyze_ticker(fv: dict) -> dict | None:
         ind = compute_indicators(ticker)
         if ind is None:
             log.warning("[%s] 지표 계산 실패", ticker); return None
-        scoring = compute_score_and_status(ind, fv)
+        scoring = compute_score_and_status(ind, fv, ticker)
         return {
             "ticker": ticker, "company": fv.get("company", ticker),
             "price": ind["price"], "change_1d": ind["change_1d"],
@@ -708,6 +852,10 @@ def analyze_ticker(fv: dict) -> dict | None:
                 ("vwap",0),("atr",0),("target_1",0),("target_2",0),("stop_loss",0),
                 ("volume_ratio",1.0),
             ]},
+            "earnings_near": ind.get("_earnings", {}).get("earnings_near", False),
+            "days_to_earnings": ind.get("_earnings", {}).get("days_to_earnings"),
+            "last_surprise_pct": ind.get("_earnings", {}).get("last_surprise_pct"),
+            "put_call_ratio": ind.get("_options", {}).get("put_call_ratio"),
             **scoring,
         }
     except Exception as e:
@@ -719,7 +867,7 @@ def analyze_ticker_presignal(ticker: str) -> dict | None:
         ind = compute_indicators(ticker)
         if ind is None:
             return None
-        scoring = compute_presignal_score(ind)
+        scoring = compute_presignal_score(ind, ticker)
         return {
             "ticker": ticker, "company": ticker,
             "price": ind["price"], "change_1d": ind["change_1d"],
@@ -732,6 +880,10 @@ def analyze_ticker_presignal(ticker: str) -> dict | None:
                 ("cloud_status",""),("cloud_status_raw","inside"),
                 ("bb_lower",0),("target_1",0),("target_2",0),("stop_loss",0),
             ]},
+            "earnings_near": ind.get("_earnings", {}).get("earnings_near", False),
+            "days_to_earnings": ind.get("_earnings", {}).get("days_to_earnings"),
+            "last_surprise_pct": ind.get("_earnings", {}).get("last_surprise_pct"),
+            "put_call_ratio": ind.get("_options", {}).get("put_call_ratio"),
             **scoring,
         }
     except Exception as e:

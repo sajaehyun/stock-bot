@@ -515,6 +515,21 @@
                             r.macd_histogram|default(0)|round(4) }}</span></div>
                     <div class="metric"><span class="k">거래량</span> <span class="v">{{ r.volume_ratio|default(1.0)
                             }}x</span></div>
+                    {% if r.earnings_near %}
+                    <div class="metric" style="background:rgba(245,158,11,.15)"><span class="k">⚡어닝</span> <span
+                            class="v" style="color:#f59e0b">{{ r.days_to_earnings }}일후</span></div>
+                    {% endif %}
+                    {% if r.last_surprise_pct is not none %}
+                    <div class="metric"><span class="k">서프라이즈</span> <span class="v"
+                            style="color:{% if r.last_surprise_pct > 0 %}#34d399{% else %}#f87171{% endif %}">{{
+                            '%+.1f'|format(r.last_surprise_pct) }}%</span></div>
+                    {% endif %}
+                    {% if r.put_call_ratio is not none %}
+                    <div class="metric"><span class="k">P/C</span> <span class="v"
+                            style="color:{% if r.put_call_ratio > 1.0 %}#34d399{% elif r.put_call_ratio < 0.5 %}#f87171{% else %}#e0e0e0{% endif %}">{{
+                            r.put_call_ratio }}</span></div>
+                    {% endif %}
+
                 </div>
                 <div class="targets">
                     <span class="target-tag tgt-1">🎯1 ${{ r.target_1|default(0) }}</span>
@@ -541,6 +556,23 @@
                             '%+.1f'|format(r.change_1d|default(0)) }}%</div>
                     </div>
                 </div>
+                <div class="metrics" style="margin:8px 0">
+                    {% if r.earnings_near %}
+                    <div class="metric" style="background:rgba(245,158,11,.15)"><span class="k">⚡어닝</span> <span
+                            class="v" style="color:#f59e0b">{{ r.days_to_earnings }}일후</span></div>
+                    {% endif %}
+                    {% if r.last_surprise_pct is not none %}
+                    <div class="metric"><span class="k">서프라이즈</span> <span class="v"
+                            style="color:{% if r.last_surprise_pct > 0 %}#34d399{% else %}#f87171{% endif %}">{{
+                            '%+.1f'|format(r.last_surprise_pct) }}%</span></div>
+                    {% endif %}
+                    {% if r.put_call_ratio is not none %}
+                    <div class="metric"><span class="k">P/C</span> <span class="v"
+                            style="color:{% if r.put_call_ratio > 1.0 %}#34d399{% elif r.put_call_ratio < 0.5 %}#f87171{% else %}#e0e0e0{% endif %}">{{
+                            r.put_call_ratio }}</span></div>
+                    {% endif %}
+                </div>
+
                 <div class="pre-signals">{% for s in r.presignal_signals %}<div class="pre-signal-item">{{ s }}</div>{%
                     endfor %}</div>
             </div>
