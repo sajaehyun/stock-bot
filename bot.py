@@ -105,10 +105,7 @@ except ImportError:
     log.warning("finvizfinance 미설치 → Finviz 스크리너 비활성화")
 
 # ── yfinance용 공유 세션 (타임아웃 5초) ───────────────────────────
-_yf_session = None
-if _YF_AVAILABLE:
-    _yf_session = requests.Session()
-    _yf_session.headers.update({"User-Agent": "Mozilla/5.0"})
+
 
 
 # ═══════════════════════════════════════════════════════════════════
@@ -217,7 +214,7 @@ def _yfinance_candles(ticker: str) -> pd.DataFrame | None:
     if not _YF_AVAILABLE:
         return None
     try:
-        t = yf.Ticker(ticker, session=_yf_session)
+        t = yf.Ticker(ticker)
         raw = t.history(period="2y", interval="1d", auto_adjust=True, timeout=10)
         if raw is None or raw.empty:
             return None
@@ -359,7 +356,7 @@ def _quick_earnings_check(ticker: str) -> dict:
     if not _YF_AVAILABLE:
         return result
     try:
-        t = yf.Ticker(ticker, session=_yf_session)
+        t = yf.Ticker(ticker)
         ed = t.earnings_dates
         if ed is None or ed.empty:
             return result
@@ -422,7 +419,7 @@ def _quick_options_check(ticker: str) -> dict:
     if not _YF_AVAILABLE:
         return result
     try:
-        t = yf.Ticker(ticker, session=_yf_session)
+        t = yf.Ticker(ticker)
         exps = t.options
         if not exps:
             return result
