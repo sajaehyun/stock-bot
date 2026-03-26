@@ -311,7 +311,10 @@
                     r.scores.analyst }}</span>
                 <span class="score-chip" style="background:rgba(14,165,233,.2);color:#0ea5e9">📈 추세 {{ r.scores.trend
                     }}</span>
+                <span class="score-chip" style="background:rgba(236,72,153,.2);color:#ec4899">💰 어닝 {{
+                    r.scores.earnings|default(0) }}</span>
             </div>
+
 
             <div class="metrics">
                 {% if r.fundamentals.pe %}<div class="metric">
@@ -354,7 +357,57 @@
                     <div class="metric-label">200일선</div>
                     <div class="metric-value">{% if r.trend.above_200ma %}✅ 위{% else %}⚠️ 아래{% endif %}</div>
                 </div>{% endif %}
+
+                <!-- ★ 어닝 & 가이던스 메트릭 추가 시작 -->
+                {% if r.earnings %}
+                {% if r.earnings.consecutive_beats %}
+                <div class="metric">
+                    <div class="metric-label">연속 비트</div>
+                    <div class="metric-value" style="color:#ec4899">{{ r.earnings.consecutive_beats }}분기</div>
+                </div>
+                {% endif %}
+
+                {% if r.earnings.last_surprise_pct is not none %}
+                <div class="metric">
+                    <div class="metric-label">최근 서프라이즈</div>
+                    <div class="metric-value"
+                        style="color:{% if r.earnings.last_surprise_pct > 0 %}#22c55e{% else %}#ef4444{% endif %}">
+                        {{ "%+.1f"|format(r.earnings.last_surprise_pct) }}%
+                    </div>
+                </div>
+                {% endif %}
+
+                {% if r.earnings.guidance_direction %}
+                <div class="metric">
+                    <div class="metric-label">가이던스</div>
+                    <div class="metric-value">
+                        {% if r.earnings.guidance_direction == 'raised' %}🚀 상향
+                        {% elif r.earnings.guidance_direction == 'lowered' %}⚠️ 하향
+                        {% else %}⏳ 유지{% endif %}
+                    </div>
+                </div>
+                {% endif %}
+
+                {% if r.earnings.next_earnings_date %}
+                <div class="metric">
+                    <div class="metric-label">다음 실적</div>
+                    <div class="metric-value">{{ r.earnings.next_earnings_date }}</div>
+                </div>
+                {% endif %}
+                {% endif %}
+                {% if r.earnings.post_reactions %}
+                <div class="metric">
+                    <div class="metric-label">어닝 후 반응</div>
+                    <div class="metric-value"
+                        style="color:{% if r.earnings.post_reactions[0].reaction_1d > 0 %}#22c55e{% else %}#ef4444{% endif %}">
+                        {{ "%+.1f"|format(r.earnings.post_reactions[0].reaction_1d) }}% (1일)
+                    </div>
+                </div>
+                {% endif %}
+
+                <!-- ★ 어닝 & 가이던스 메트릭 추가 끝 -->
             </div>
+
 
             {% if r.institutional.top_holders %}
             <div class="holders">

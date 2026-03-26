@@ -634,6 +634,7 @@ def analyze_earnings(ticker_str, ticker_obj):
             except Exception:
                 pass
 
+
         # 방법 C: Finnhub Revenue Estimate (가이던스 구체화)
         if FINNHUB_KEY:
             try:
@@ -651,6 +652,83 @@ def analyze_earnings(ticker_str, ticker_obj):
                                 result["signals"].append(f"📊 다음 분기 매출 추정 +{rev_growth:.1f}% (성장)")
             except Exception:
                 pass
+
+        # ── 4) 어닝콜 이후 시장 반응 분석 ──
+        try:
+            hist = ticker_obj.history(period="2y")
+            if hist is not None and not hist.empty and result["earnings_history"]:
+                import pandas as pd
+                reactions = []
+                for eh in result["earnings_history"][:4]:
+                    try:
+                        e_date = pd.to_datetime(eh["date"]).normalize()
+                        available = hist.index[hist.index >= e_date]
+                        if len(available) < 3:
+                            continue
+
+                        day0_idx = available[0]
+                        day0_close = float(hist.loc[day0_idx, "Close"])
+
+                        before = hist.index[hist.index < e_date]
+                        if len(before) == 0:
+                            continue
+                        prev_close = float(hist.loc[before[-1], "Close"])
+
+                        reaction_1d = round((day0_close - prev_close) / prev_close * 100, 2)
+
+                        reaction_3d = None
+                        if len(available) >= 3:
+                            day3_close = float(hist.loc[available[2], "Close"])
+                            reaction_3d = round((day3_close - prev_close) / prev_close * 100, 2)
+
+                        reaction_5d = None
+                        if len(available) >= 5:
+                            day5_close = float(hist.loc[available[4], "Close"])
+                            reaction_5d = round((day5_close - prev_close) / prev_close * 100, 2)
+
+                        reactions.append({
+                            "date": eh["date"],
+                            "beat": eh["beat"],
+                            "surprise_pct": eh["surprise_pct"],
+                            "reaction_1d": reaction_1d,
+                            "reaction_3d": reaction_3d,
+                            "reaction_5d": reaction_5d,
+                        })
+                    except Exception:
+                        continue
+
+                result["post_earnings_reactions"] = reactions
+
+                if reactions:
+                    latest = reactions[0]
+                    r1d = latest["reaction_1d"]
+
+                    if latest["beat"] and r1d > 3:
+                        result["earnings_score"] += 10
+                        result["signals"].append(f"🚀 어닝 비트 후 시장 긍정 반응 (+{r1d}%)")
+                    elif latest["beat"] and r1d > 0:
+                        result["earnings_score"] += 5
+                        result["signals"].append(f"✅ 어닝 비트 후 소폭 상승 (+{r1d}%)")
+                    elif latest["beat"] and r1d < -3:
+                        result["earnings_score"] -= 5
+                        result["signals"].append(f"⚠️ 어닝 비트에도 하락 ({r1d}%) → sell the news")
+                    elif not latest["beat"] and r1d > 3:
+                        result["earnings_score"] += 5
+                        result["signals"].append(f"🔥 어닝 미스에도 상승 ({r1d}%) → 악재 선반영")
+                    elif not latest["beat"] and r1d < -5:
+                        result["earnings_score"] -= 10
+                        result["signals"].append(f"📉 어닝 미스 + 급락 ({r1d}%)")
+
+                    avg_1d = sum(r["reaction_1d"] for r in reactions) / len(reactions)
+                    if avg_1d > 3:
+                        result["earnings_score"] += 5
+                        result["signals"].append(f"📈 최근 {len(reactions)}분기 어닝 후 평균 +{avg_1d:.1f}% 상승")
+                    elif avg_1d < -3:
+                        result["earnings_score"] -= 5
+                        result["signals"].append(f"📉 최근 {len(reactions)}분기 어닝 후 평균 {avg_1d:.1f}% 하락")
+
+        except Exception as e:
+            LOG.warning(f"어닝 후 시장 반응 분석 실패: {e}")
 
     except Exception as e:
         LOG.warning(f"어닝/가이던스 분석 실패: {e}")
@@ -766,7 +844,9 @@ def analyze_ticker_longterm(ticker_str):
                 "guidance_direction": earnings["guidance_direction"],
                 "next_earnings_date": earnings["next_earnings_date"],
                 "history": earnings["earnings_history"][:4],
+                "post_reactions": earnings.get("post_earnings_reactions", []),
             },
+
         }
 
     except Exception as e:
