@@ -33,7 +33,7 @@ KST = timezone(timedelta(hours=9))
 
 # ──────────────────────────── 상수 ─────────────────────────────────
 MAX_WORKERS     = 5
-MAX_TICKERS     = 30
+MAX_TICKERS     = 15
 RAW_SCORE_MAX   = 140
 RAW_SCORE_MIN   = -80
 RAW_SCORE_RANGE = RAW_SCORE_MAX - RAW_SCORE_MIN
@@ -687,8 +687,8 @@ def compute_score_and_status(ind: dict, fv: dict, ticker: str = "") -> dict:
     fc = fv.get("finviz_change", 0)
     if fc >= 5: raw += 5; signals.append(f"✅ Finviz +{fc}%")
 
-    # ── 어닝/옵션 단기 반영 ──
-    if ticker:
+    # ── 어닝/옵션 단기 반영 (메모리 절약으로 비활성화) ──
+    if False and ticker:
         eq, oq = _get_earnings_and_options(ticker)
         raw += eq["earnings_adj"]
         raw += oq["options_adj"]
@@ -753,8 +753,8 @@ def compute_presignal_score(ind: dict, ticker: str = "") -> dict:
     if rsi > 70:     raw -= 15; signals.append("⚠️ RSI 과열 → 선행 부적합")
     elif rsi > 60:   raw -= 5;  signals.append("⚠️ RSI 중립 상단")
 
-    # ── 어닝/옵션 선행 반영 ──
-    if ticker:
+    # ── 어닝/옵션 선행 반영 (메모리 절약으로 비활성화) ──
+    if False and ticker:
         eq, oq = _get_earnings_and_options(ticker)
         raw += eq["earnings_adj"]
         raw += oq["options_adj"]
