@@ -734,6 +734,227 @@ def analyze_earnings(ticker_str, ticker_obj):
         LOG.warning(f"어닝/가이던스 분석 실패: {e}")
 
     return result
+# ── 8. 섹터/동종업계 비교 분석 ────────────────────────
+def analyze_sector_comparison(ticker_obj, all_sector_data=None):
+    """같은 섹터 내 PER, 성장률 상대 비교"""
+    result = {
+        "sector": None,
+        "industry": None,
+        "sector_rank": None,
+        "sector_total": None,
+        "pe_vs_sector": None,
+        "growth_vs_sector": None,
+        "sector_score": 0,
+        "signals": [],
+    }
+    try:
+        info = ticker_obj.info or {}
+        result["sector"] = info.get("sector", "")
+        result["industry"] = info.get("industry", "")
+
+        pe = info.get("forwardPE") or info.get("trailingPE")
+        growth = info.get("revenueGrowth")
+        margin = info.get("profitMargins")
+        sector_pe = info.get("sectorPe") or info.get("industryPe")
+
+        # yfinance에서 sectorPe가 없으면 sector 평균 추정
+        if pe is not None:
+            # 일반적인 섹터 평균 PER 기준
+            sector_avg_pe = {
+                "Technology": 30, "Communication Services": 25,
+                "Consumer Cyclical": 22, "Healthcare": 28,
+                "Financial Services": 15, "Industrials": 20,
+                "Consumer Defensive": 22, "Energy": 12,
+                "Utilities": 18, "Real Estate": 35,
+                "Basic Materials": 16,
+            }
+            avg_pe = sector_avg_pe.get(result["sector"], 22)
+
+            if pe > 0:
+                ratio = pe / avg_pe
+                result["pe_vs_sector"] = round(ratio, 2)
+
+                if ratio < 0.7:
+                    result["sector_score"] += 10
+                    result["signals"].append(f"💰 섹터 대비 PER 저평가 ({pe:.1f} vs 평균 {avg_pe})")
+                elif ratio < 0.9:
+                    result["sector_score"] += 5
+                    result["signals"].append(f"✅ 섹터 대비 PER 소폭 저평가 ({pe:.1f} vs {avg_pe})")
+                elif ratio > 1.5:
+                    result["sector_score"] -= 5
+                    result["signals"].append(f"⚠️ 섹터 대비 PER 고평가 ({pe:.1f} vs {avg_pe})")
+
+        if growth is not None:
+            sector_avg_growth = {
+                "Technology": 0.15, "Communication Services": 0.10,
+                "Consumer Cyclical": 0.08, "Healthcare": 0.12,
+                "Financial Services": 0.07, "Industrials": 0.06,
+                "Consumer Defensive": 0.04, "Energy": 0.05,
+                "Utilities": 0.05, "Real Estate": 0.04,
+                "Basic Materials": 0.05,
+            }
+            avg_g = sector_avg_growth.get(result["sector"], 0.08)
+
+            result["growth_vs_sector"] = round(growth / avg_g, 2) if avg_g > 0 else 1.0
+
+            if growth > avg_g * 2:
+                result["sector_score"] += 10
+                result["signals"].append(f"🔥 섹터 대비 성장률 2배+ ({growth*100:.1f}% vs {avg_g*100:.1f}%)")
+            elif growth > avg_g * 1.3:
+                result["sector_score"] += 5
+                result["signals"].append(f"📈 섹터 평균 이상 성장 ({growth*100:.1f}% vs {avg_g*100:.1f}%)")
+            elif growth < avg_g * 0.5 and growth >= 0:
+                result["sector_score"] -= 3
+                result["signals"].append(f"📉 섹터 평균 이하 성장 ({growth*100:.1f}% vs {avg_g*100:.1f}%)")
+
+        if margin is not None:
+            sector_avg_margin = {
+                "Technology": 0.20, "Communication Services": 0.15,
+                "Consumer Cyclical": 0.08, "Healthcare": 0.15,
+                "Financial Services": 0.25, "Industrials": 0.10,
+                "Consumer Defensive": 0.08, "Energy": 0.10,
+                "Utilities": 0.12, "Real Estate": 0.20,
+                "Basic Materials": 0.08,
+            }
+            avg_m = sector_avg_margin.get(result["sector"], 0.12)
+            if margin > avg_m * 1.5:
+                result["sector_score"] += 5
+                result["signals"].append(f"💎 섹터 대비 높은 마진 ({margin*100:.1f}% vs {avg_m*100:.1f}%)")
+
+    except Exception as e:
+        LOG.warning(f"섹터 비교 분석 실패: {e}")
+
+    return result
+
+
+# ── 9. 자사주 매입 분석 ───────────────────────────────
+def analyze_buyback(ticker_obj):
+    """발행주식수 변화로 자사주 매입 추정"""
+    result = {
+        "shares_current": None,
+        "shares_year_ago": None,
+        "buyback_pct": None,
+        "buyback_score": 0,
+        "signals": [],
+    }
+    try:
+        # get_shares_full()로 발행주식수 히스토리
+        shares = ticker_obj.get_shares_full(start="2024-01-01")
+        if shares is not None and len(shares) >= 2:
+            current_shares = float(shares.iloc[-1])
+            oldest_shares = float(shares.iloc[0])
+
+            result["shares_current"] = int(current_shares)
+            result["shares_year_ago"] = int(oldest_shares)
+
+            if oldest_shares > 0:
+                change_pct = ((current_shares - oldest_shares) / oldest_shares) * 100
+                result["buyback_pct"] = round(change_pct, 2)
+
+                if change_pct < -3:
+                    result["buyback_score"] += 15
+                    result["signals"].append(f"🔥 대규모 자사주 매입 (주식수 {change_pct:.1f}% 감소)")
+                elif change_pct < -1:
+                    result["buyback_score"] += 10
+                    result["signals"].append(f"✅ 자사주 매입 진행 (주식수 {change_pct:.1f}% 감소)")
+                elif change_pct < 0:
+                    result["buyback_score"] += 5
+                    result["signals"].append(f"✅ 소규모 자사주 매입 ({change_pct:.1f}%)")
+                elif change_pct > 5:
+                    result["buyback_score"] -= 10
+                    result["signals"].append(f"⚠️ 대규모 유상증자 (주식수 +{change_pct:.1f}% 증가)")
+                elif change_pct > 2:
+                    result["buyback_score"] -= 5
+                    result["signals"].append(f"⚠️ 주식수 증가 (+{change_pct:.1f}%) → 희석 우려")
+        else:
+            # get_shares_full 실패 시 info에서 추정
+            info = ticker_obj.info or {}
+            shares_out = info.get("sharesOutstanding")
+            float_shares = info.get("floatShares")
+            if shares_out and float_shares and shares_out > 0:
+                buyback_ratio = float_shares / shares_out
+                if buyback_ratio < 0.85:
+                    result["buyback_score"] += 5
+                    result["signals"].append("✅ 유통주식 비율 낮음 (자사주 보유 추정)")
+
+    except Exception as e:
+        LOG.warning(f"자사주 매입 분석 실패: {e}")
+
+    return result
+
+
+# ── 10. 옵션 시장 분석 (풋/콜 비율) ──────────────────
+def analyze_options(ticker_obj):
+    """옵션 풋/콜 비율로 시장 심리 분석"""
+    result = {
+        "put_call_ratio": None,
+        "put_volume": 0,
+        "call_volume": 0,
+        "put_oi": 0,
+        "call_oi": 0,
+        "options_score": 0,
+        "signals": [],
+    }
+    try:
+        expirations = ticker_obj.options
+        if not expirations:
+            return result
+
+        # 가장 가까운 만기 2개만 분석 (속도)
+        total_put_vol = 0
+        total_call_vol = 0
+        total_put_oi = 0
+        total_call_oi = 0
+
+        for exp in expirations[:2]:
+            try:
+                chain = ticker_obj.option_chain(exp)
+
+                if chain.calls is not None and not chain.calls.empty:
+                    total_call_vol += chain.calls["volume"].fillna(0).sum()
+                    total_call_oi += chain.calls["openInterest"].fillna(0).sum()
+
+                if chain.puts is not None and not chain.puts.empty:
+                    total_put_vol += chain.puts["volume"].fillna(0).sum()
+                    total_put_oi += chain.puts["openInterest"].fillna(0).sum()
+            except Exception:
+                continue
+
+        result["put_volume"] = int(total_put_vol)
+        result["call_volume"] = int(total_call_vol)
+        result["put_oi"] = int(total_put_oi)
+        result["call_oi"] = int(total_call_oi)
+
+        # 풋/콜 비율 (거래량 기준)
+        if total_call_vol > 0:
+            pcr_vol = total_put_vol / total_call_vol
+            result["put_call_ratio"] = round(pcr_vol, 2)
+
+            if pcr_vol > 1.5:
+                result["options_score"] += 10
+                result["signals"].append(f"🔥 극단적 풋/콜 비율 {pcr_vol:.2f} → 공포 극대 (역발상 매수)")
+            elif pcr_vol > 1.0:
+                result["options_score"] += 5
+                result["signals"].append(f"✅ 풋/콜 비율 {pcr_vol:.2f} → 약세 심리 (반등 가능)")
+            elif pcr_vol < 0.5:
+                result["options_score"] -= 5
+                result["signals"].append(f"⚠️ 풋/콜 비율 {pcr_vol:.2f} → 과도한 낙관")
+            elif pcr_vol < 0.7:
+                result["signals"].append(f"📊 풋/콜 비율 {pcr_vol:.2f} → 낙관 심리")
+            else:
+                result["signals"].append(f"📊 풋/콜 비율 {pcr_vol:.2f} → 중립")
+
+        # 미결제약정 기준 보충
+        if total_call_oi > 0:
+            pcr_oi = total_put_oi / total_call_oi
+            if pcr_oi > 1.5 and result["options_score"] >= 0:
+                result["options_score"] += 5
+                result["signals"].append(f"📊 미결제 풋/콜 {pcr_oi:.2f} → 헤지 수요 높음")
+
+    except Exception as e:
+        LOG.warning(f"옵션 분석 실패: {e}")
+
+    return result
 
 # ── 종합 분석 ─────────────────────────────────────────
 def analyze_ticker_longterm(ticker_str):
@@ -749,7 +970,9 @@ def analyze_ticker_longterm(ticker_str):
         analyst = analyze_analyst(t)
         trend = analyze_long_trend(t)
         earnings = analyze_earnings(ticker_str, t)  # ★ 추가
-
+        sector_comp = analyze_sector_comparison(t)       # ★ 추가
+        buyback = analyze_buyback(t)                 # ★ 추가
+        options = analyze_options(t)                  # ★ 추가
         total_score = (
             inst["inst_score"] +
             insider["insider_score"] +
@@ -757,7 +980,10 @@ def analyze_ticker_longterm(ticker_str):
             news["news_score"] +
             analyst["analyst_score"] +
             trend["trend_score"] +
-            earnings["earnings_score"]  # ★ 추가
+            earnings["earnings_score"] + # ★ 추가
+            sector_comp["sector_score"] +                 # ★ 추가
+            buyback["buyback_score"] +                # ★ 추가
+            options["options_score"]  
         )
 
         if total_score >= 70:
@@ -778,7 +1004,10 @@ def analyze_ticker_longterm(ticker_str):
             news["signals"] +
             analyst["signals"] +
             trend["signals"] +
-            earnings["signals"]  # ★ 추가
+            earnings["signals"] + # ★ 추가
+            sector_comp["signals"] +     # ★ 추가
+            buyback["signals"] +                      # ★ 추가
+            options["signals"]  
         )
 
         current_price = info.get("currentPrice") or info.get("regularMarketPrice", 0)
@@ -802,6 +1031,9 @@ def analyze_ticker_longterm(ticker_str):
                 "analyst": analyst["analyst_score"],
                 "trend": trend["trend_score"],
                 "earnings": earnings["earnings_score"],  # ★ 추가
+                "sector": sector_comp["sector_score"],         # ★ 추가
+                "buyback": buyback["buyback_score"],      # ★ 추가
+                "options": options["options_score"],  
             },
             "signals": all_signals,
             "institutional": {
@@ -920,7 +1152,9 @@ def _send_longterm_telegram(results, universe, total):
         # ★ 이 줄이 수정된 부분 (어닝 추가)
         sc = r["scores"]
         detail = (f"기관{sc['institutional']}|펀더{sc['fundamental']}|뉴스{sc['news']}"
-                  f"|애널{sc['analyst']}|추세{sc['trend']}|어닝{sc.get('earnings', 0)}")
+                  f"|애널{sc['analyst']}|추세{sc['trend']}|어닝{sc.get('earnings', 0)}"
+                  f"|섹터{sc.get('sector', 0)}|바이백{sc.get('buyback', 0)}|옵션{sc.get('options', 0)}")
+
 
         target = r["analyst"].get("target_mean")
         target_str = f" → 목표${target:.0f}" if target else ""

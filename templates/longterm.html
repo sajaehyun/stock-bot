@@ -313,6 +313,13 @@
                     }}</span>
                 <span class="score-chip" style="background:rgba(236,72,153,.2);color:#ec4899">💰 어닝 {{
                     r.scores.earnings|default(0) }}</span>
+                <span class="score-chip" style="background:rgba(168,162,158,.2);color:#a8a29e">🏭 섹터 {{
+                    r.scores.sector|default(0) }}</span>
+                <span class="score-chip" style="background:rgba(34,211,238,.2);color:#22d3ee">🔄 바이백 {{
+                    r.scores.buyback|default(0) }}</span>
+                <span class="score-chip" style="background:rgba(251,146,60,.2);color:#fb923c">📊 옵션 {{
+                    r.scores.options|default(0) }}</span>
+
             </div>
 
 
@@ -403,6 +410,41 @@
                         {{ "%+.1f"|format(r.earnings.post_reactions[0].reaction_1d) }}% (1일)
                     </div>
                 </div>
+                {% endif %}
+                {% if r.sector_comparison %}
+                {% if r.sector_comparison.pe_vs_sector is not none %}
+                <div class="metric">
+                    <div class="metric-label">섹터 대비 PER</div>
+                    <div class="metric-value"
+                        style="color:{% if r.sector_comparison.pe_vs_sector < 1 %}#22c55e{% else %}#f59e0b{% endif %}">
+                        {{ "%.2f"|format(r.sector_comparison.pe_vs_sector) }}x
+                    </div>
+                </div>
+                {% endif %}
+                {% endif %}
+
+                {% if r.buyback %}
+                {% if r.buyback.buyback_pct is not none %}
+                <div class="metric">
+                    <div class="metric-label">자사주 매입</div>
+                    <div class="metric-value"
+                        style="color:{% if r.buyback.buyback_pct < 0 %}#22c55e{% else %}#ef4444{% endif %}">
+                        {{ "%+.1f"|format(r.buyback.buyback_pct) }}%
+                    </div>
+                </div>
+                {% endif %}
+                {% endif %}
+
+                {% if r.options %}
+                {% if r.options.put_call_ratio is not none %}
+                <div class="metric">
+                    <div class="metric-label">풋/콜 비율</div>
+                    <div class="metric-value"
+                        style="color:{% if r.options.put_call_ratio > 1.0 %}#22c55e{% elif r.options.put_call_ratio < 0.5 %}#ef4444{% else %}#e0e0e0{% endif %}">
+                        {{ "%.2f"|format(r.options.put_call_ratio) }}
+                    </div>
+                </div>
+                {% endif %}
                 {% endif %}
 
                 <!-- ★ 어닝 & 가이던스 메트릭 추가 끝 -->
