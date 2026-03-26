@@ -519,7 +519,7 @@
                     <div class="metric" style="background:rgba(245,158,11,.15)"><span class="k">⚡어닝</span> <span
                             class="v" style="color:#f59e0b">{{ r.days_to_earnings }}일후</span></div>
                     {% endif %}
-                    {% if r.last_surprise_pct is not none %}
+                    {% if r.get('last_surprise_pct') is not none %}
                     <div class="metric"><span class="k">서프라이즈</span> <span class="v"
                             style="color:{% if r.last_surprise_pct > 0 %}#34d399{% else %}#f87171{% endif %}">{{
                             '%+.1f'|format(r.last_surprise_pct) }}%</span></div>
