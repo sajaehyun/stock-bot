@@ -635,13 +635,32 @@
             document.getElementById('tab-' + t).classList.add('active');
         }
         function startRefresh(mode) {
+            const btn = document.getElementById(mode === 'presignal' ? 'btnPresignal' : (mode === 'conviction' ? 'btnConviction' : 'btnMomentum'));
+            const label = mode === 'presignal' ? '선행' : (mode === 'conviction' ? '확신' : '모멘텀');
+            btn.disabled = true;
+            btn.textContent = '⏳ ' + label + ' 분석중…';
+
             let body = { mode: mode, universe: document.getElementById('selUniverse').value };
             fetch('/refresh', {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json', 'X-CSRF-Token': CSRF },
                 body: JSON.stringify(body)
-            }).then(r => r.json()).then(d => { if (d.status === 'started') pollStatus(mode); });
+            }).then(r => {
+                if (r.status === 403) {
+                    alert('세션 만료. 페이지를 새로고침합니다.');
+                    location.reload();
+                    return;
+                }
+                return r.json();
+            }).then(d => {
+                if (d && d.status === 'started') pollStatus(mode);
+            }).catch(e => {
+                btn.disabled = false;
+                btn.textContent = '❌ 오류 - 다시 시도';
+                alert('요청 실패: ' + e.message);
+            });
         }
+
         function pollStatus(mode) {
             setTimeout(() => {
                 fetch('/status').then(r => r.json()).then(d => {
