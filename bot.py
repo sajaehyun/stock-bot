@@ -63,6 +63,7 @@ SP500_SYMBOLS = [
     "REGN","CME","PH","SLB","ZTS","MCO","USB","FISV","HCA","BDX",
     "CI","ICE","NOC","GD","MET","TGT","F","GM","UBER","NOW",
     "PANW","SNOW","COIN","PLTR","ARM","SMCI","DELL","HPQ","MU","QCOM",
+    "SPCX",  # ✅ SpaceX (2026.06.12 NASDAQ 상장)
 ]
 
 SOX_SYMBOLS = [
