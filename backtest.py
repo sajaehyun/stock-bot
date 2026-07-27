@@ -7,7 +7,7 @@ import os, json, pathlib, logging
 from datetime import datetime, timedelta
 import pandas as pd
 import numpy as np
-import pandas_datareader as pdr
+
 
 LOG = logging.getLogger("backtest")
 HISTORY_DIR   = pathlib.Path("history")
