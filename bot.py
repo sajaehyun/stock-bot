@@ -1,7 +1,7 @@
 """
 S&P 500 + Semiconductor Momentum Scanner + Pre-Signal Scanner
 ──────────────────────────────────────────────────────────────
-데이터 소스: Twelve Data API (무료 800호출/일)
+데이터 소스: Twelve Data API (배치 최적화 — 무료 800호출/일)
 Mode 1 (analyze):            당일 상승 종목 → 기술적 점수화
 Mode 2 (analyze_presignal):  전체 스캔 → 선행 신호 탐색
 Mode 3 (analyze_conviction): 7개 독립 필터 + 오버랩 보너스
@@ -30,8 +30,9 @@ CHAT_ID         = os.getenv("CHAT_ID", "")
 KST = timezone(timedelta(hours=9))
 
 # ──────────────────────────── 상수 ─────────────────────────────────
-MAX_WORKERS     = 4   # Twelve Data 무료 분당 8회 → 4 워커로 여유있게
+MAX_WORKERS     = 2
 MAX_TICKERS     = 15
+BATCH_SIZE      = 8   # time_series 배치 묶음 크기 (8종목 = 1크레딧)
 RAW_SCORE_MAX   = 140
 RAW_SCORE_MIN   = -80
 RAW_SCORE_RANGE = RAW_SCORE_MAX - RAW_SCORE_MIN
@@ -86,60 +87,45 @@ logging.basicConfig(
 )
 log = logging.getLogger(__name__)
 
+# ═══════════════════════════════════════════════════════════════════
+# OHLCV 캐시 — 배치로 미리 받아서 저장
+# ═══════════════════════════════════════════════════════════════════
+_ohlcv_cache: dict[str, pd.DataFrame] = {}
 
-# ═══════════════════════════════════════════════════════════════════
-# Twelve Data API — OHLCV 수집
-# ═══════════════════════════════════════════════════════════════════
 
 def _td_get(endpoint: str, params: dict, retries: int = 3) -> dict | None:
-    """Twelve Data API 호출 (rate limit 자동 대기)"""
     if not TWELVE_DATA_KEY:
-        log.error("TWELVE_DATA_KEY 미설정 — Render 환경변수를 확인하세요")
+        log.error("TWELVE_DATA_KEY 미설정")
         return None
     params["apikey"] = TWELVE_DATA_KEY
     url = f"{TD_BASE}/{endpoint}"
     for attempt in range(retries):
         try:
-            resp = requests.get(url, params=params, timeout=15)
+            resp = requests.get(url, params=params, timeout=20)
             if resp.status_code == 429:
-                wait = 15 * (attempt + 1)
+                wait = 20 * (attempt + 1)
                 log.warning("Twelve Data rate limit → %d초 대기", wait)
                 time.sleep(wait)
                 continue
             if resp.status_code != 200:
-                log.warning("Twelve Data HTTP %d: %s", resp.status_code, resp.text[:100])
+                log.warning("Twelve Data HTTP %d", resp.status_code)
                 return None
             data = resp.json()
-            if data.get("status") == "error":
-                log.warning("Twelve Data 오류 [%s]: %s", params.get("symbol",""), data.get("message",""))
+            if isinstance(data, dict) and data.get("status") == "error":
+                log.warning("Twelve Data 오류: %s", data.get("message", ""))
                 return None
             return data
         except requests.exceptions.Timeout:
-            log.warning("[%s] Twelve Data timeout (시도 %d/%d)", params.get("symbol",""), attempt+1, retries)
+            log.warning("Twelve Data timeout (시도 %d/%d)", attempt+1, retries)
             time.sleep(5)
         except Exception as e:
-            log.warning("[%s] Twelve Data 오류: %s", params.get("symbol",""), e)
+            log.warning("Twelve Data 오류: %s", e)
             time.sleep(3)
     return None
 
 
-def fetch_ohlcv(ticker: str, days: int = 180) -> pd.DataFrame | None:
-    """Twelve Data에서 일봉 OHLCV 수집"""
-    # BRK-B → BRK/B 변환 (Twelve Data 표기)
-    td_symbol = ticker.replace("-", "/")
-    outputsize = min(days, 500)
-    data = _td_get("time_series", {
-        "symbol": td_symbol,
-        "interval": "1day",
-        "outputsize": outputsize,
-        "order": "ASC",
-    })
-    if data is None:
-        return None
-    values = data.get("values")
-    if not values:
-        log.warning("[%s] Twelve Data 데이터 없음", ticker)
-        return None
+def _parse_ohlcv(values: list) -> pd.DataFrame | None:
+    """Twelve Data values 리스트 → DataFrame"""
     try:
         df = pd.DataFrame(values)
         df["datetime"] = pd.to_datetime(df["datetime"])
@@ -151,13 +137,103 @@ def fetch_ohlcv(ticker: str, days: int = 180) -> pd.DataFrame | None:
         for col in ["Open", "High", "Low", "Close", "Volume"]:
             df[col] = pd.to_numeric(df[col], errors="coerce")
         df = df.dropna(subset=["Close"])
-        if len(df) < 40:
-            log.warning("[%s] 데이터 부족: %d행", ticker, len(df))
-            return None
-        return df
+        return df if len(df) >= 40 else None
     except Exception as e:
-        log.warning("[%s] OHLCV 파싱 오류: %s", ticker, e)
+        log.warning("OHLCV 파싱 오류: %s", e)
         return None
+
+
+def prefetch_ohlcv_batch(tickers: list, days: int = 180) -> None:
+    """
+    ★ 핵심 최적화 ★
+    여러 종목을 BATCH_SIZE씩 묶어서 한 번에 호출
+    100종목 → 13번 호출 (기존 100번 → 87% 절감)
+    """
+    global _ohlcv_cache
+    to_fetch = [t for t in tickers if t not in _ohlcv_cache]
+    if not to_fetch:
+        return
+
+    log.info("OHLCV 배치 프리페치 시작: %d종목 → %d번 호출",
+             len(to_fetch), (len(to_fetch) + BATCH_SIZE - 1) // BATCH_SIZE)
+
+    outputsize = min(days, 500)
+    fetched = 0
+
+    for i in range(0, len(to_fetch), BATCH_SIZE):
+        chunk = to_fetch[i:i + BATCH_SIZE]
+        td_symbols = [s.replace("-", "/") for s in chunk]
+        batch_str  = ",".join(td_symbols)
+
+        data = _td_get("time_series", {
+            "symbol":     batch_str,
+            "interval":   "1day",
+            "outputsize": outputsize,
+            "order":      "ASC",
+        })
+
+        if data is None:
+            log.warning("배치 OHLCV 실패: %s", chunk)
+            time.sleep(8)
+            continue
+
+        # 단일 종목이면 {"values": [...]} 형태
+        # 다중 종목이면 {"AAPL": {"values": [...]}, ...} 형태
+        if "values" in data:
+            # 단일 종목 응답
+            sym = chunk[0].replace("-", "/")
+            original = chunk[0]
+            df = _parse_ohlcv(data["values"])
+            if df is not None:
+                _ohlcv_cache[original] = df
+                fetched += 1
+        else:
+            # 다중 종목 응답
+            for td_sym, sym_data in data.items():
+                original = td_sym.replace("/", "-")
+                if not isinstance(sym_data, dict):
+                    continue
+                values = sym_data.get("values")
+                if not values:
+                    continue
+                df = _parse_ohlcv(values)
+                if df is not None:
+                    _ohlcv_cache[original] = df
+                    fetched += 1
+
+        log.info("배치 진행: %d/%d 완료 (캐시 %d종목)",
+                 min(i + BATCH_SIZE, len(to_fetch)), len(to_fetch), fetched)
+
+        # 분당 8크레딧 제한 → 배치당 8초 대기
+        if i + BATCH_SIZE < len(to_fetch):
+            time.sleep(8)
+
+    log.info("OHLCV 프리페치 완료: %d종목 캐시됨", fetched)
+
+
+def fetch_ohlcv(ticker: str, days: int = 180) -> pd.DataFrame | None:
+    """캐시에서 먼저 조회, 없으면 단건 호출"""
+    if ticker in _ohlcv_cache:
+        return _ohlcv_cache[ticker]
+
+    # 캐시 미스 → 단건 호출
+    td_symbol  = ticker.replace("-", "/")
+    outputsize = min(days, 500)
+    data = _td_get("time_series", {
+        "symbol":     td_symbol,
+        "interval":   "1day",
+        "outputsize": outputsize,
+        "order":      "ASC",
+    })
+    if data is None:
+        return None
+    values = data.get("values")
+    if not values:
+        return None
+    df = _parse_ohlcv(values)
+    if df is not None:
+        _ohlcv_cache[ticker] = df
+    return df
 
 
 # ═══════════════════════════════════════════════════════════════════
@@ -165,37 +241,31 @@ def fetch_ohlcv(ticker: str, days: int = 180) -> pd.DataFrame | None:
 # ═══════════════════════════════════════════════════════════════════
 
 def _fetch_batch_quotes(symbols: list) -> dict:
-    """최대 120개 종목을 한 번에 조회 (1 credit)"""
     result = {}
-    # BRK-B 처리
     td_symbols = [s.replace("-", "/") for s in symbols]
-    batch_str = ",".join(td_symbols)
+    batch_str  = ",".join(td_symbols)
     data = _td_get("quote", {"symbol": batch_str})
     if data is None:
         return result
-    # 단일 종목이면 dict, 다수이면 {symbol: dict}
     if isinstance(data, dict) and "symbol" in data:
         sym = data["symbol"].replace("/", "-")
         result[sym] = data
     elif isinstance(data, dict):
         for k, v in data.items():
             if isinstance(v, dict) and v.get("status") != "error":
-                sym = k.replace("/", "-")
-                result[sym] = v
+                result[k.replace("/", "-")] = v
     return result
 
 
 def _get_top_movers(symbols: list, top_n: int = 15) -> list:
-    """당일 상승률 상위 종목 선별"""
     log.info("Twelve Data quote 배치 조회: %d 종목", len(symbols))
-    # 120개씩 청크
     all_quotes = {}
     for i in range(0, len(symbols), 100):
-        chunk = symbols[i:i+100]
+        chunk  = symbols[i:i+100]
         quotes = _fetch_batch_quotes(chunk)
         all_quotes.update(quotes)
         if i + 100 < len(symbols):
-            time.sleep(1)  # rate limit 여유
+            time.sleep(2)
 
     candidates = []
     for sym, q in all_quotes.items():
@@ -206,9 +276,9 @@ def _get_top_movers(symbols: list, top_n: int = 15) -> list:
                 continue
             chg = round((price - prev) / prev * 100, 2)
             candidates.append({
-                "ticker": sym,
-                "company": q.get("name", sym),
-                "finviz_price": round(price, 2),
+                "ticker":        sym,
+                "company":       q.get("name", sym),
+                "finviz_price":  round(price, 2),
                 "finviz_change": chg,
             })
         except Exception:
@@ -244,7 +314,7 @@ def normalize_score(raw: float) -> int:
 
 
 def _escape_html(text: str) -> str:
-    return str(text).replace("&", "&amp;").replace("<", "&lt;").replace(">", "&gt;").replace('"', "&quot;")
+    return str(text).replace("&","&amp;").replace("<","&lt;").replace(">","&gt;").replace('"',"&quot;")
 
 
 # ═══════════════════════════════════════════════════════════════════
@@ -253,19 +323,16 @@ def _escape_html(text: str) -> str:
 
 def send_telegram(message: str) -> None:
     if not TELEGRAM_TOKEN or not CHAT_ID:
-        log.info("Telegram 토큰 미설정 → 전송 스킵")
         return
     url = f"https://api.telegram.org/bot{TELEGRAM_TOKEN}/sendMessage"
     try:
-        resp = requests.post(url, json={"chat_id": CHAT_ID, "text": message[:4000], "parse_mode": "HTML"}, timeout=10)
-        if resp.status_code != 200:
-            log.warning("Telegram 전송 실패: %s", resp.text[:200])
+        requests.post(url, json={"chat_id": CHAT_ID, "text": message[:4000], "parse_mode": "HTML"}, timeout=10)
     except Exception as e:
         log.warning("Telegram 오류: %s", e)
 
 
 # ═══════════════════════════════════════════════════════════════════
-# 어닝/옵션 — 비활성화 (데이터 소스 없음)
+# 어닝/옵션 — 비활성화
 # ═══════════════════════════════════════════════════════════════════
 
 def _quick_earnings_check(ticker: str) -> dict:
@@ -273,17 +340,15 @@ def _quick_earnings_check(ticker: str) -> dict:
             "last_surprise_pct": None, "post_reaction_1d": None,
             "earnings_signals": [], "earnings_adj": 0}
 
-
 def _quick_options_check(ticker: str) -> dict:
     return {"put_call_ratio": None, "options_signals": [], "options_adj": 0}
-
 
 def _get_earnings_and_options(ticker: str) -> tuple:
     return _quick_earnings_check(ticker), _quick_options_check(ticker)
 
 
 # ═══════════════════════════════════════════════════════════════════
-# 기술 지표 계산
+# 기술 지표 계산 (기존 로직 100% 유지)
 # ═══════════════════════════════════════════════════════════════════
 
 _REQUIRED_COLS = ["Close", "High", "Low", "Volume"]
@@ -295,7 +360,6 @@ def compute_indicators(ticker: str) -> dict | None:
         return None
     missing = [c for c in _REQUIRED_COLS if c not in df.columns]
     if missing:
-        log.warning("[%s] 컬럼 누락: %s – 스킵", ticker, missing)
         return None
     try:
         close  = pd.Series(df["Close"].values.flatten(),  index=df.index, dtype=float)
@@ -311,7 +375,6 @@ def compute_indicators(ticker: str) -> dict | None:
                 change_1d = round((price - prev) / prev * 100, 2)
         result = {"price": price, "change_1d": change_1d}
 
-        # RSI (14)
         if len(close) >= 15:
             delta    = close.diff()
             gain     = delta.clip(lower=0)
@@ -327,10 +390,9 @@ def compute_indicators(ticker: str) -> dict | None:
         else:
             result["rsi"] = 50.0
 
-        # MACD (12/26/9)
         if len(close) >= 35:
-            ema12 = close.ewm(span=12, adjust=False).mean()
-            ema26 = close.ewm(span=26, adjust=False).mean()
+            ema12  = close.ewm(span=12, adjust=False).mean()
+            ema26  = close.ewm(span=26, adjust=False).mean()
             macd_l = ema12 - ema26
             sig_l  = macd_l.ewm(span=9, adjust=False).mean()
             result["macd"]           = round(safe_float(macd_l.iloc[-1]), 4)
@@ -339,7 +401,6 @@ def compute_indicators(ticker: str) -> dict | None:
         else:
             result["macd"] = result["macd_signal"] = result["macd_histogram"] = 0.0
 
-        # 이동평균 (20/50/200)
         for p in [20, 50, 200]:
             result[f"ma{p}"] = round(safe_float(close.rolling(p).mean().iloc[-1]), 2) if len(close) >= p else price
 
@@ -357,7 +418,6 @@ def compute_indicators(ticker: str) -> dict | None:
                 if p20 <= p50 and c20 > c50: result["golden_cross"] = True
                 if p20 >= p50 and c20 < c50: result["dead_cross"]   = True
 
-        # Stochastic %K/%D
         if len(close) >= 14:
             low14  = low.rolling(14).min(); high14 = high.rolling(14).max()
             denom  = (high14 - low14).replace(0, np.nan)
@@ -367,9 +427,8 @@ def compute_indicators(ticker: str) -> dict | None:
         else:
             result["stoch_k"] = result["stoch_d"] = 50.0
 
-        # Ichimoku Cloud
         if len(close) >= 52:
-            tenkan = (high.rolling(9).max() + low.rolling(9).min()) / 2
+            tenkan = (high.rolling(9).max()  + low.rolling(9).min())  / 2
             kijun  = (high.rolling(26).max() + low.rolling(26).min()) / 2
             span_a = ((tenkan + kijun) / 2).shift(26)
             span_b = ((high.rolling(52).max() + low.rolling(52).min()) / 2).shift(26)
@@ -384,7 +443,6 @@ def compute_indicators(ticker: str) -> dict | None:
             result["cloud_top"] = result["cloud_bottom"] = price
             result["cloud_status"] = CLOUD_STATUS_KO["inside"]; result["cloud_status_raw"] = "inside"
 
-        # VWAP (20D)
         if len(close) >= 20:
             tp      = (high + low + close) / 3
             vol_sum = volume.rolling(20).sum().replace(0, np.nan)
@@ -392,7 +450,6 @@ def compute_indicators(ticker: str) -> dict | None:
         else:
             result["vwap"] = price
 
-        # ATR (14)
         if len(close) >= 15:
             tr  = pd.concat([high - low, (high - close.shift(1)).abs(), (low - close.shift(1)).abs()], axis=1).max(axis=1)
             atr = max(safe_float(tr.rolling(14).mean().iloc[-1], price * 0.01), price * 0.01)
@@ -403,40 +460,30 @@ def compute_indicators(ticker: str) -> dict | None:
         result["target_2"]  = round(price + atr * 3.0, 2)
         result["stop_loss"] = round(price - atr * 1.5, 2)
 
-        # 거래량 비율
         if len(volume) >= 21:
             avg_vol = safe_float(volume.rolling(20).mean().iloc[-1], 1)
             result["volume_ratio"] = round(safe_float(volume.iloc[-1]) / avg_vol, 2) if avg_vol > 0 else 1.0
         else:
             result["volume_ratio"] = 1.0
 
-        # 볼린저 밴드
         if len(close) >= 20:
             ma20_bb = close.rolling(20).mean(); std20 = close.rolling(20).std()
             result["bb_upper"] = round(safe_float(ma20_bb.iloc[-1] + 2*std20.iloc[-1]), 2)
             result["bb_lower"] = round(safe_float(ma20_bb.iloc[-1] - 2*std20.iloc[-1]), 2)
             bb_w = (4 * std20 / ma20_bb * 100).dropna()
             result["bb_width"] = round(safe_float(bb_w.iloc[-1]), 2) if len(bb_w) > 0 else 0
-            if len(bb_w) >= 120:
-                result["bb_width_percentile"] = round((bb_w.tail(120) < safe_float(bb_w.iloc[-1])).sum() / 120 * 100, 1)
-            else:
-                result["bb_width_percentile"] = 50.0
+            result["bb_width_percentile"] = round((bb_w.tail(120) < safe_float(bb_w.iloc[-1])).sum() / 120 * 100, 1) if len(bb_w) >= 120 else 50.0
         else:
             result["bb_upper"] = result["bb_lower"] = price
             result["bb_width"] = 0; result["bb_width_percentile"] = 50.0
 
-        # ATR 백분위
         if len(close) >= 15:
             tr_s  = pd.concat([high - low, (high - close.shift(1)).abs(), (low - close.shift(1)).abs()], axis=1).max(axis=1)
             atr_s = tr_s.rolling(14).mean().dropna()
-            if len(atr_s) >= 120:
-                result["atr_percentile"] = round((atr_s.tail(120) < safe_float(atr_s.iloc[-1])).sum() / 120 * 100, 1)
-            else:
-                result["atr_percentile"] = 50.0
+            result["atr_percentile"] = round((atr_s.tail(120) < safe_float(atr_s.iloc[-1])).sum() / 120 * 100, 1) if len(atr_s) >= 120 else 50.0
         else:
             result["atr_percentile"] = 50.0
 
-        # MACD 히스토그램 전환
         result["macd_cross_up"] = result["macd_cross_down"] = result["macd_approaching_zero"] = False
         if len(close) >= 35:
             ema12_s = close.ewm(span=12, adjust=False).mean()
@@ -448,7 +495,6 @@ def compute_indicators(ticker: str) -> dict | None:
                 result["macd_cross_down"]       = (h2 >= 0 and h3 < 0)
                 result["macd_approaching_zero"] = (h3 < 0 and h3 > h2 and h2 > h1)
 
-        # 골든크로스 임박
         result["golden_cross_approaching"] = False; result["ma50_ma200_gap"] = 0.0
         if len(close) >= 200:
             mv50  = safe_float(close.rolling(50).mean().iloc[-1])
@@ -466,7 +512,7 @@ def compute_indicators(ticker: str) -> dict | None:
 
 
 # ═══════════════════════════════════════════════════════════════════
-# 모멘텀 점수
+# 점수 계산 (기존 100% 유지)
 # ═══════════════════════════════════════════════════════════════════
 
 def compute_score_and_status(ind: dict, fv: dict, ticker: str = "") -> dict:
@@ -476,116 +522,85 @@ def compute_score_and_status(ind: dict, fv: dict, ticker: str = "") -> dict:
     elif rsi < 40:   raw += 10; signals.append("✅ RSI 약세 반등 구간")
     elif rsi > 80:   raw -= 20; signals.append("⚠️ RSI 과열")
     elif rsi > 70:   raw -= 10; signals.append("⚠️ RSI 고열 구간")
-
     atr = ind.get("atr", 1); mn = ind.get("macd", 0) / atr if atr > 0 else 0
     if mn > 0.5:     raw += 20; signals.append("✅ MACD 강한 상승")
     elif mn > 0:     raw += 10; signals.append("✅ MACD 약한 상승")
     elif mn > -0.5:  raw -= 5;  signals.append("⚠️ MACD 약한 하락")
     else:            raw -= 15; signals.append("⚠️ MACD 하락")
-
     price = ind.get("price", 0); ma20 = ind.get("ma20", price)
     if price > 0 and ma20 > 0:
         if price > ma20: raw += 15; signals.append("✅ 가격 > MA20")
         else:            raw -= 10; signals.append("⚠️ 가격 < MA20")
-
     if ind.get("ma_trend_raw") == "bullish": raw += 15; signals.append("✅ MA 정배열")
     else:                                    raw -= 10; signals.append("⚠️ MA 역배열")
-
     if ind.get("golden_cross"): raw += 20; signals.append("✅ 골든크로스")
     if ind.get("dead_cross"):   raw -= 10; signals.append("⚠️ 데드크로스")
-
     cr = ind.get("cloud_status_raw", "inside")
     if cr == "above":   raw += 15; signals.append("✅ 구름 위")
     elif cr == "below": raw -= 10; signals.append("⚠️ 구름 아래")
     else:               signals.append("⏳ 구름 안")
-
     sk = ind.get("stoch_k", 50)
     if sk < 20:   raw += 10; signals.append("✅ Stoch 과매도")
     elif sk > 80: raw -= 5;  signals.append("⚠️ Stoch 과열")
-
     vwap = ind.get("vwap", price)
     if price > 0 and vwap > 0 and price > vwap: raw += 10; signals.append("✅ 가격 > VWAP")
-
     vr = ind.get("volume_ratio", 1.0)
     if vr >= 2.0:   raw += 10; signals.append(f"✅ 거래량 급증 ({vr}x)")
     elif vr >= 1.5: raw += 5;  signals.append(f"✅ 거래량 증가 ({vr}x)")
-
     fc = fv.get("finviz_change", 0)
     if fc >= 5: raw += 5; signals.append(f"✅ 당일 +{fc}%")
-
     score = normalize_score(raw)
     if score >= 65:   entry = "🟢"; ek = "green"
     elif score >= 45: entry = "⏳"; ek = "wait"
     else:             entry = "❌"; ek = "stop"
-
     return {"score": score, "raw_score": raw, "entry": entry, "entry_key": ek, "signals": signals}
 
 
-# ═══════════════════════════════════════════════════════════════════
-# 선행 신호 점수
-# ═══════════════════════════════════════════════════════════════════
-
 def compute_presignal_score(ind: dict, ticker: str = "") -> dict:
     raw = 0; signals = []; price = ind.get("price", 0)
-
     sq = (ind.get("bb_width_percentile", 50) + ind.get("atr_percentile", 50)) / 2
     if sq <= 10:   raw += 25; signals.append("🔥 극도의 변동성 수축 (폭발 임박)")
     elif sq <= 20: raw += 20; signals.append("🔥 강한 변동성 수축")
     elif sq <= 35: raw += 12; signals.append("✅ 변동성 수축 진행 중")
-
     rsi = ind.get("rsi", 50)
     if 30 <= rsi <= 40:   raw += 20; signals.append("✅ RSI 과매도 반등 구간 (30-40)")
     elif 25 <= rsi < 30:  raw += 15; signals.append("✅ RSI 깊은 과매도 (반등 대기)")
     elif 40 < rsi <= 45:  raw += 8;  signals.append("✅ RSI 약세 탈출 중 (40-45)")
-
     if ind.get("macd_cross_up"):           raw += 20; signals.append("🔥 MACD 히스토그램 음→양 전환")
     elif ind.get("macd_approaching_zero"): raw += 12; signals.append("✅ MACD 제로라인 돌파 임박")
-
     if ind.get("golden_cross"):
         raw += 15; signals.append("🔥 골든크로스 발생!")
     elif ind.get("golden_cross_approaching"):
         raw += 12; signals.append(f"✅ 골든크로스 임박 (갭 {ind.get('ma50_ma200_gap',0)}%)")
-
     vr = ind.get("volume_ratio", 1.0); chg = abs(ind.get("change_1d", 0))
     if vr >= 2.0 and chg < 2.0:   raw += 15; signals.append(f"🔥 거래량 급증({vr}x) + 가격 소폭 → 에너지 축적")
     elif vr >= 1.5 and chg < 1.5: raw += 8;  signals.append(f"✅ 거래량 증가({vr}x) + 가격 미반응")
-
     sk, sd = ind.get("stoch_k", 50), ind.get("stoch_d", 50)
     if 20 < sk <= 30 and sk > sd: raw += 10; signals.append("✅ Stoch 과매도 탈출 중")
     elif sk <= 20:                raw += 5;  signals.append("⏳ Stoch 과매도 (반등 미확인)")
-
     bbl = ind.get("bb_lower", 0)
     if bbl > 0 and price > 0:
         dist = (price - bbl) / price * 100
         if 0 < dist <= 1.5: raw += 10; signals.append("✅ 볼린저 하단 근접 반등")
         elif dist <= 0:     raw += 5;  signals.append("⏳ 볼린저 하단 이탈")
-
     if ind.get("cloud_status_raw") == "inside":
         raw += 5; signals.append("⏳ 구름 안 진입 (전환 구간)")
-
     c1d = ind.get("change_1d", 0)
-    if c1d > 5:      raw -= 15; signals.append("⚠️ 당일 5%+ 상승 (후행 위험)")
-    elif c1d > 3:    raw -= 8;  signals.append("⚠️ 당일 3%+ 상승")
-    if rsi > 70:     raw -= 15; signals.append("⚠️ RSI 과열 → 선행 부적합")
-    elif rsi > 60:   raw -= 5;  signals.append("⚠️ RSI 중립 상단")
-
+    if c1d > 5:    raw -= 15; signals.append("⚠️ 당일 5%+ 상승 (후행 위험)")
+    elif c1d > 3:  raw -= 8;  signals.append("⚠️ 당일 3%+ 상승")
+    if rsi > 70:   raw -= 15; signals.append("⚠️ RSI 과열 → 선행 부적합")
+    elif rsi > 60: raw -= 5;  signals.append("⚠️ RSI 중립 상단")
     score = max(0, min(100, raw))
     if score >= 60:   g = "🔥 강력"; gk = "strong"
     elif score >= 40: g = "✅ 관심"; gk = "watch"
     elif score >= 20: g = "⏳ 대기"; gk = "wait"
     else:             g = "⬜ 약함"; gk = "weak"
-
     return {"presignal_score": score, "presignal_raw": raw,
             "presignal_grade": g, "grade_key": gk, "presignal_signals": signals}
 
 
-# ═══════════════════════════════════════════════════════════════════
-# 확신 점수
-# ═══════════════════════════════════════════════════════════════════
-
 def _compute_conviction_score(ind: dict) -> dict:
     filters_hit = 0; raw = 0; signals = []; price = ind.get("price", 0)
-
     bb_pct = ind.get("bb_width_percentile", 50); atr_pct = ind.get("atr_percentile", 50)
     squeeze_avg = (bb_pct + atr_pct) / 2
     if squeeze_avg <= 15:
@@ -594,7 +609,6 @@ def _compute_conviction_score(ind: dict) -> dict:
         raw += 12; filters_hit += 1; signals.append("✅ TTM Squeeze: 변동성 수축 진행 중")
     elif squeeze_avg <= 35:
         raw += 6; signals.append("⏳ TTM Squeeze: 약한 수축")
-
     rsi = ind.get("rsi", 50)
     if 30 <= rsi <= 40:
         raw += 16; filters_hit += 1; signals.append("🔥 RSI 바닥 반등 (30-40)")
@@ -602,30 +616,25 @@ def _compute_conviction_score(ind: dict) -> dict:
         raw += 12; filters_hit += 1; signals.append("✅ RSI 깊은 과매도 (반등 대기)")
     elif 40 < rsi <= 45:
         raw += 6; signals.append("⏳ RSI 약세 탈출 중")
-
     if ind.get("macd_cross_up"):
         raw += 16; filters_hit += 1; signals.append("🔥 MACD 히스토그램 음→양 전환")
     elif ind.get("macd_approaching_zero"):
         raw += 10; filters_hit += 1; signals.append("✅ MACD 제로라인 돌파 임박")
-
     if ind.get("golden_cross"):
         raw += 16; filters_hit += 1; signals.append("🔥 골든크로스 발생!")
     elif ind.get("golden_cross_approaching"):
         gap = ind.get("ma50_ma200_gap", 0)
         raw += 12; filters_hit += 1; signals.append(f"✅ 골든크로스 임박 (MA 갭 {gap}%)")
-
     vr = ind.get("volume_ratio", 1.0); chg = abs(ind.get("change_1d", 0))
     if vr >= 2.0 and chg < 2.0:
         raw += 14; filters_hit += 1; signals.append(f"🔥 스마트머니 축적: 거래량 {vr}x + 가격 미반응")
     elif vr >= 1.5 and chg < 1.5:
         raw += 8; filters_hit += 1; signals.append(f"✅ 거래량 증가({vr}x) + 가격 안정")
-
     sk = ind.get("stoch_k", 50); sd = ind.get("stoch_d", 50)
     if 20 < sk <= 35 and sk > sd:
         raw += 12; filters_hit += 1; signals.append("✅ Stoch 과매도 탈출 (%K > %D)")
     elif sk <= 20:
         raw += 5; signals.append("⏳ Stoch 과매도 (반등 미확인)")
-
     bbl = ind.get("bb_lower", 0)
     if bbl > 0 and price > 0:
         dist = (price - bbl) / price * 100
@@ -635,7 +644,6 @@ def _compute_conviction_score(ind: dict) -> dict:
             raw += 6; signals.append("⏳ 볼린저 하단 이탈 (바닥 탐색)")
         elif dist <= 3.0:
             raw += 4; signals.append("⏳ 볼린저 하단 접근 중")
-
     if filters_hit >= 4:
         bonus = 1.6; signals.insert(0, f"⭐ {filters_hit}개 필터 동시 충족 → 1.6x 보너스")
     elif filters_hit >= 3:
@@ -644,9 +652,7 @@ def _compute_conviction_score(ind: dict) -> dict:
         bonus = 1.2; signals.insert(0, f"✅ {filters_hit}개 필터 동시 충족 → 1.2x 보너스")
     else:
         bonus = 1.0
-
     raw = raw * bonus
-
     c1d = ind.get("change_1d", 0)
     if c1d > 5:   raw -= 20; signals.append("⚠️ 당일 5%+ 상승 (이미 움직임 → 후행 위험)")
     elif c1d > 3: raw -= 10; signals.append("⚠️ 당일 3%+ 상승")
@@ -654,13 +660,11 @@ def _compute_conviction_score(ind: dict) -> dict:
     elif rsi > 60: raw -= 8;  signals.append("⚠️ RSI 중립 상단 (>60)")
     if ind.get("dead_cross"):                  raw -= 15; signals.append("⚠️ 데드크로스 발생 → 하방 압력")
     if ind.get("cloud_status_raw") == "below": raw -= 5;  signals.append("⚠️ 구름 아래 위치")
-
     score = max(0, min(100, int(round(raw))))
     if score >= 70:   grade = "⭐ 확신"; grade_key = "conviction"
     elif score >= 50: grade = "🔥 유력"; grade_key = "strong"
     elif score >= 30: grade = "✅ 관심"; grade_key = "watch"
     else:             grade = "⬜ 미달"; grade_key = "weak"
-
     return {"conviction_score": score, "conviction_raw": round(raw, 1), "conviction_grade": grade,
             "grade_key": grade_key, "filters_hit": filters_hit, "overlap_bonus": bonus,
             "conviction_signals": signals}
@@ -675,7 +679,7 @@ def analyze_ticker(fv: dict) -> dict | None:
     try:
         ind = compute_indicators(ticker)
         if ind is None:
-            log.warning("[%s] 지표 계산 실패", ticker); return None
+            return None
         scoring = compute_score_and_status(ind, fv, ticker)
         return {
             "ticker": ticker, "company": fv.get("company", ticker),
@@ -750,19 +754,18 @@ def analyze_ticker_conviction(ticker: str) -> dict | None:
 
 
 # ═══════════════════════════════════════════════════════════════════
-# 선행/확신 1차 필터 — Twelve Data quote 배치
+# 선행/확신 1차 필터
 # ═══════════════════════════════════════════════════════════════════
 
 def _get_presignal_candidates(symbols: list) -> list:
-    """소폭 등락 + 거래량 이상 종목 1차 필터링"""
     log.info("선행 신호 1차 필터 시작: %d 종목", len(symbols))
     all_quotes = {}
     for i in range(0, len(symbols), 100):
-        chunk = symbols[i:i+100]
+        chunk  = symbols[i:i+100]
         quotes = _fetch_batch_quotes(chunk)
         all_quotes.update(quotes)
         if i + 100 < len(symbols):
-            time.sleep(1)
+            time.sleep(2)
 
     if not all_quotes:
         log.warning("quote 배치 실패 → 전체 종목 사용")
@@ -777,10 +780,10 @@ def _get_presignal_candidates(symbols: list) -> list:
                 continue
             chg = abs((price - prev) / prev * 100)
             if chg > 5:
-                continue  # 이미 많이 움직인 종목 제외
-            vol = float(q.get("volume") or 0)
+                continue
+            vol     = float(q.get("volume") or 0)
             avg_vol = float(q.get("average_volume") or vol or 1)
-            vr = vol / avg_vol if avg_vol > 0 else 1.0
+            vr      = vol / avg_vol if avg_vol > 0 else 1.0
             candidates.append((sym, chg, vr))
         except Exception:
             continue
@@ -796,6 +799,8 @@ def _get_presignal_candidates(symbols: list) -> list:
 # ═══════════════════════════════════════════════════════════════════
 
 def analyze() -> dict:
+    global _ohlcv_cache
+    _ohlcv_cache = {}  # 매 실행마다 캐시 초기화
     analyzed_at = datetime.now(KST).strftime("%Y-%m-%d %H:%M:%S (KST)")
     log.info("═══ 모멘텀 분석 시작: %s ═══", analyzed_at)
 
@@ -805,9 +810,12 @@ def analyze() -> dict:
                 "green": 0, "wait": 0, "stop": 0,
                 "error": "Twelve Data 데이터 수신 실패 — TWELVE_DATA_KEY 확인 필요"}
 
-    log.info("후보 종목: %d개", len(candidates))
+    # ★ 배치 프리페치 — 한 번에 모든 OHLCV 가져오기
+    tickers = [c["ticker"] for c in candidates]
+    prefetch_ohlcv_batch(tickers)
+
     results = []
-    with ThreadPoolExecutor(max_workers=min(MAX_WORKERS, len(candidates))) as ex:
+    with ThreadPoolExecutor(max_workers=MAX_WORKERS) as ex:
         fmap = {ex.submit(analyze_ticker, fv): fv["ticker"] for fv in candidates}
         for f in as_completed(fmap):
             try:
@@ -831,7 +839,6 @@ def analyze() -> dict:
     try:
         with open(HISTORY_DIR / f"{ts}.json", "w", encoding="utf-8") as f:
             json.dump(save_data, f, ensure_ascii=False, indent=2, default=str)
-        log.info("히스토리 저장: history/%s.json", ts)
     except Exception as e:
         log.error("히스토리 저장 오류: %s", e)
 
@@ -844,8 +851,7 @@ def analyze() -> dict:
                      f"점수:{r['score']} | ${r['price']} ({r['change_1d']:+.1f}%)")
     send_telegram("\n".join(lines))
 
-    log.info("═══ 모멘텀 분석 완료 ═══")
-    log.info("총 %d종목 | 🟢 %d | ⏳ %d | ❌ %d", len(results), gc, wc, sc)
+    log.info("═══ 모멘텀 분석 완료: 총 %d종목 | 🟢%d ⏳%d ❌%d ═══", len(results), gc, wc, sc)
     return save_data
 
 
@@ -854,23 +860,22 @@ def analyze() -> dict:
 # ═══════════════════════════════════════════════════════════════════
 
 def analyze_presignal(universe: str = "sp500") -> dict:
-    uni      = UNIVERSE_MAP.get(universe, UNIVERSE_MAP["sp500"])
-    symbols  = uni["symbols"]
-    uni_name = uni["name"]
+    global _ohlcv_cache
+    _ohlcv_cache = {}
+    uni = UNIVERSE_MAP.get(universe, UNIVERSE_MAP["sp500"])
+    symbols = uni["symbols"]; uni_name = uni["name"]
     analyzed_at = datetime.now(KST).strftime("%Y-%m-%d %H:%M:%S (KST)")
-    log.info("═══ 선행 신호 스캔 시작 [%s]: %s ═══", uni_name, analyzed_at)
+    log.info("═══ 선행 신호 스캔 시작 [%s] ═══", uni_name)
 
     scan_targets = _get_presignal_candidates(symbols)
-    log.info("선행 신호 정밀 스캔: %d 종목", len(scan_targets))
+
+    # ★ 배치 프리페치
+    prefetch_ohlcv_batch(scan_targets)
 
     results = []
-    with ThreadPoolExecutor(max_workers=min(MAX_WORKERS, len(scan_targets))) as ex:
+    with ThreadPoolExecutor(max_workers=MAX_WORKERS) as ex:
         fmap = {ex.submit(analyze_ticker_presignal, sym): sym for sym in scan_targets}
-        done = 0
         for f in as_completed(fmap):
-            done += 1
-            if done % 10 == 0:
-                log.info("선행 스캔 진행: %d/%d", done, len(scan_targets))
             try:
                 r = f.result()
                 if r: results.append(r)
@@ -884,7 +889,6 @@ def analyze_presignal(universe: str = "sp500") -> dict:
 
     results.sort(key=lambda x: x["presignal_score"], reverse=True)
     top_results = results[:PRESIGNAL_MAX_RESULTS]
-
     stc = sum(1 for r in results if r["grade_key"] == "strong")
     wac = sum(1 for r in results if r["grade_key"] == "watch")
     wtc = sum(1 for r in results if r["grade_key"] == "wait")
@@ -897,7 +901,6 @@ def analyze_presignal(universe: str = "sp500") -> dict:
     try:
         with open(PRESIGNAL_DIR / f"{ts}.json", "w", encoding="utf-8") as f:
             json.dump(save_data, f, ensure_ascii=False, indent=2, default=str)
-        log.info("선행 신호 저장: presignal/%s.json", ts)
     except Exception as e:
         log.error("선행 신호 저장 오류: %s", e)
 
@@ -912,8 +915,7 @@ def analyze_presignal(universe: str = "sp500") -> dict:
                      f"   → {_escape_html(sigs)}")
     send_telegram("\n".join(lines))
 
-    log.info("═══ 선행 신호 스캔 완료 [%s] ═══", uni_name)
-    log.info("스캔 %d종목 | 🔥 %d | ✅ %d | ⏳ %d | ⬜ %d", len(results), stc, wac, wtc, wkc)
+    log.info("═══ 선행 신호 완료 [%s]: 🔥%d ✅%d ⏳%d ═══", uni_name, stc, wac, wtc)
     return save_data
 
 
@@ -922,23 +924,22 @@ def analyze_presignal(universe: str = "sp500") -> dict:
 # ═══════════════════════════════════════════════════════════════════
 
 def analyze_conviction(universe: str = "sp500+sox") -> dict:
-    uni      = UNIVERSE_MAP.get(universe, UNIVERSE_MAP["sp500+sox"])
-    symbols  = uni["symbols"]
-    uni_name = uni["name"]
+    global _ohlcv_cache
+    _ohlcv_cache = {}
+    uni = UNIVERSE_MAP.get(universe, UNIVERSE_MAP["sp500+sox"])
+    symbols = uni["symbols"]; uni_name = uni["name"]
     analyzed_at = datetime.now(KST).strftime("%Y-%m-%d %H:%M:%S (KST)")
-    log.info("═══ 확신 스캐너 시작 [%s]: %s ═══", uni_name, analyzed_at)
+    log.info("═══ 확신 스캐너 시작 [%s] ═══", uni_name)
 
     scan_targets = _get_presignal_candidates(symbols)
-    log.info("확신 스캐너 정밀 스캔: %d 종목", len(scan_targets))
+
+    # ★ 배치 프리페치
+    prefetch_ohlcv_batch(scan_targets)
 
     results = []
-    with ThreadPoolExecutor(max_workers=min(MAX_WORKERS, len(scan_targets))) as ex:
+    with ThreadPoolExecutor(max_workers=MAX_WORKERS) as ex:
         fmap = {ex.submit(analyze_ticker_conviction, sym): sym for sym in scan_targets}
-        done = 0
         for f in as_completed(fmap):
-            done += 1
-            if done % 10 == 0:
-                log.info("확신 스캔 진행: %d/%d", done, len(scan_targets))
             try:
                 r = f.result()
                 if r: results.append(r)
@@ -952,7 +953,6 @@ def analyze_conviction(universe: str = "sp500+sox") -> dict:
 
     results.sort(key=lambda x: x["conviction_score"], reverse=True)
     top_results = results[:CONVICTION_MAX_RESULTS]
-
     cc = sum(1 for r in results if r["grade_key"] == "conviction")
     sc = sum(1 for r in results if r["grade_key"] == "strong")
     wc = sum(1 for r in results if r["grade_key"] == "watch")
@@ -965,7 +965,6 @@ def analyze_conviction(universe: str = "sp500+sox") -> dict:
     try:
         with open(CONVICTION_DIR / f"{ts}.json", "w", encoding="utf-8") as f:
             json.dump(save_data, f, ensure_ascii=False, indent=2, default=str)
-        log.info("확신 종목 저장: conviction/%s.json", ts)
     except Exception as e:
         log.error("확신 종목 저장 오류: %s", e)
 
@@ -981,8 +980,7 @@ def analyze_conviction(universe: str = "sp500+sox") -> dict:
                      f"   → {_escape_html(sigs)}")
     send_telegram("\n".join(lines))
 
-    log.info("═══ 확신 스캐너 완료 [%s] ═══", uni_name)
-    log.info("스캔 %d종목 | ⭐ %d | 🔥 %d | ✅ %d | ⬜ %d", len(results), cc, sc, wc, wk)
+    log.info("═══ 확신 스캐너 완료 [%s]: ⭐%d 🔥%d ✅%d ═══", uni_name, cc, sc, wc)
     return save_data
 
 
