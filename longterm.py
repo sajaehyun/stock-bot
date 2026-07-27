@@ -1184,4 +1184,4 @@ def _send_longterm_telegram(results, universe, total):
 if __name__ == "__main__":
     import sys
     universe = sys.argv[1] if len(sys.argv) > 1 else "sp500+sox"
-    analyze_longterm(universe)https://raw.githubusercontent.com/sajaehyun/stock-bot/a2a2a11/longterm.py
+    analyze_longterm(universe)
