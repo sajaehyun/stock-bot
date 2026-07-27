@@ -801,8 +801,8 @@ def _get_presignal_candidates(symbols: list) -> list:
 # ═══════════════════════════════════════════════════════════════════
 # 메인: 모멘텀 분석
 # ═══════════════════════════════════════════════════════════════════
+def format_mode1(universe: str = "sp500") -> dict:
 
-def analyze() -> dict:
     analyzed_at = datetime.now(KST).strftime("%Y-%m-%d %H:%M:%S (KST)")
     log.info("═══ 모멘텀 분석 시작: %s ═══", analyzed_at)
 
