@@ -9,3 +9,4 @@ lxml
 beautifulsoup4
 rich
 finvizfinance>=0.14.7
+pandas-datareader
