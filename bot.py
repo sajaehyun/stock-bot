@@ -974,6 +974,18 @@ def analyze_conviction(universe: str = "sp500+sox") -> dict:
 # ═══════════════════════════════════════════════════════════════════
 # CLI
 # ═══════════════════════════════════════════════════════════════════
+def test_stooq():
+    try:
+        import pandas_datareader as pdr
+        from datetime import datetime, timedelta
+        df = pdr.get_data_stooq("AAPL.US", datetime.today()-timedelta(days=10), datetime.today())
+        if df is None or df.empty:
+            log.error("stooq 테스트 실패: 데이터 없음")
+        else:
+            log.info("stooq 테스트 성공: %s", df.tail(2))
+    except Exception as e:
+        log.error("stooq 테스트 오류: %s", e)
+
 
 if __name__ == "__main__":
     import sys
