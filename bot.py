@@ -245,13 +245,15 @@ def _yfinance_candles(ticker: str) -> pd.DataFrame | None:
         return None
 
 
+
 def fetch_ohlcv(ticker: str) -> pd.DataFrame | None:
     try:
         import pandas_datareader as pdr
         from datetime import datetime, timedelta
         end = datetime.today()
         start = end - timedelta(days=180)
-        df = pdr.get_data_stooq(ticker, start, end)
+        stooq_ticker = ticker + ".US"  # ← 이게 핵심
+        df = pdr.get_data_stooq(stooq_ticker, start, end)
         if df is None or df.empty:
             return None
         df = df.sort_index()
@@ -261,7 +263,6 @@ def fetch_ohlcv(ticker: str) -> pd.DataFrame | None:
     except Exception as e:
         log.warning("[%s] stooq 오류: %s", ticker, e)
         return None
-
 
 
 
