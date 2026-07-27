@@ -210,9 +210,8 @@ def _run_bg(mode="momentum", universe="sp500"):
         elif mode == "conviction": # New: handle conviction analysis
             data = bot.analyze_conviction(universe=universe)
         else:
-            data =
-        bot.run_scan(universe=universe,
-        mode="analyze")
+    data = bot.run_scan(universe=universe, mode="analyze")
+
         if not data:
             state.finish_analyzing(error="분석 결과 없음", mode=mode)
         elif data.get("error"):
