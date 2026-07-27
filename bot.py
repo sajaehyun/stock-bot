@@ -12,7 +12,6 @@ import json
 import time
 import random
 import logging
-import inspect
 import pathlib
 from datetime import datetime, timedelta, timezone
 from concurrent.futures import ThreadPoolExecutor, as_completed
@@ -20,13 +19,8 @@ from concurrent.futures import ThreadPoolExecutor, as_completed
 import requests
 import numpy as np
 import pandas as pd
+import pandas_datareader as pdr
 from dotenv import load_dotenv
-import yfinance as yf
-yf.utils.get_user_agent_headers = lambda: {
-    'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/125.0.0.0 Safari/537.36',
-    'Accept': 'text/html,application/xhtml+xml',
-    'Accept-Language': 'en-US,en;q=0.9',
-}
 
 # ──────────────────────────── 환경 변수 ────────────────────────────
 load_dotenv()
@@ -43,8 +37,6 @@ MAX_TICKERS     = 15
 RAW_SCORE_MAX   = 140
 RAW_SCORE_MIN   = -80
 RAW_SCORE_RANGE = RAW_SCORE_MAX - RAW_SCORE_MIN
-FINNHUB_BASE    = "https://finnhub.io/api/v1"
-FINNHUB_DELAY   = 1.1
 HISTORY_DIR     = pathlib.Path("history")
 HISTORY_DIR.mkdir(exist_ok=True)
 HISTORY_TS_FMT  = "%Y-%m-%d_%H%M%S"
@@ -69,7 +61,6 @@ SP500_SYMBOLS = [
     "REGN","CME","PH","SLB","ZTS","MCO","USB","FISV","HCA","BDX",
     "CI","ICE","NOC","GD","MET","TGT","F","GM","UBER","NOW",
     "PANW","SNOW","COIN","PLTR","ARM","SMCI","DELL","HPQ","MU","QCOM",
-    "SPCX",  # ✅ SpaceX (2026.06.12 NASDAQ 상장)
 ]
 
 SOX_SYMBOLS = [
@@ -95,25 +86,12 @@ logging.basicConfig(
 )
 log = logging.getLogger(__name__)
 
-_YF_AVAILABLE    = False
-_YF_SUPPORTS_MLI = False
-try:
-    import yfinance as yf
-    _YF_AVAILABLE    = True
-    _YF_SUPPORTS_MLI = "multi_level_index" in inspect.signature(yf.download).parameters
-except ImportError:
-    log.warning("yfinance 미설치 → Finnhub 전용 모드")
-
 _FV_AVAILABLE = False
 try:
     from finvizfinance.screener.overview import Overview
     _FV_AVAILABLE = True
 except ImportError:
     log.warning("finvizfinance 미설치 → Finviz 스크리너 비활성화")
-
-# ── yfinance용 공유 세션 (타임아웃 5초) ───────────────────────────
-
-
 
 # ═══════════════════════════════════════════════════════════════════
 # 유틸리티
@@ -169,63 +147,19 @@ def send_telegram(message: str) -> None:
 
 
 # ═══════════════════════════════════════════════════════════════════
-# Finnhub API 헬퍼
+# OHLCV — stooq 전용
 # ═══════════════════════════════════════════════════════════════════
 
-def _finnhub_get(endpoint: str, params: dict, retries: int = 3):
-    if not FINNHUB_API_KEY:
-        return None
-    params = {**params, "token": FINNHUB_API_KEY}
-    url = f"{FINNHUB_BASE}/{endpoint}"
-    for attempt in range(retries):
-        try:
-            r = requests.get(url, params=params, timeout=15)
-            if r.status_code == 200:
-                return r.json()
-            if r.status_code == 429:
-                wait = float(r.headers.get("Retry-After", 2)) + random.uniform(0, 1)
-                log.warning("Finnhub 429 → %.1fs 대기 (attempt %d)", wait, attempt + 1)
-                time.sleep(wait)
-                continue
-            log.warning("Finnhub %d: %s", r.status_code, r.text[:120])
-            return None
-        except requests.RequestException as e:
-            log.warning("Finnhub 요청 오류: %s", e)
-            time.sleep(1)
-    return None
-
-
-# ═══════════════════════════════════════════════════════════════════
-# OHLCV
-# ═══════════════════════════════════════════════════════════════════
-
-def _finnhub_candles(ticker: str, days: int = 730) -> pd.DataFrame | None:
-    now   = int(datetime.now().timestamp())
-    start = int((datetime.now() - timedelta(days=days)).timestamp())
-    data  = _finnhub_get("stock/candle", {"symbol": ticker, "resolution": "D", "from": start, "to": now})
-    if not data or data.get("s") != "ok":
-        return None
+def fetch_ohlcv(ticker: str, days: int = 180) -> pd.DataFrame | None:
     try:
-        df = pd.DataFrame(
-            {"Open": data["o"], "High": data["h"], "Low": data["l"], "Close": data["c"], "Volume": data["v"]},
-            index=pd.to_datetime(data["t"], unit="s"),
-        )
-        df.index.name = "Date"
-        return df if len(df) >= 40 else None
-    except Exception as e:
-        log.warning("Finnhub candles 파싱 오류 [%s]: %s", ticker, e)
-        return None
-
-
-def _yfinance_candles(ticker: str) -> pd.DataFrame | None:
-    if not _YF_AVAILABLE:
-        return None
-    try:
-        t = yf.Ticker(ticker)
-        raw = t.history(period="2y", interval="1d", auto_adjust=True, timeout=10)
-        if raw is None or raw.empty:
+        end   = datetime.today()
+        start = end - timedelta(days=days)
+        stooq_ticker = ticker + ".US"
+        df = pdr.get_data_stooq(stooq_ticker, start, end)
+        if df is None or df.empty:
+            log.warning("[%s] stooq 데이터 없음", ticker)
             return None
-        df = raw.copy()
+        df = df.sort_index()
         rename = {}
         for c in df.columns:
             cl = str(c).lower().strip()
@@ -237,37 +171,14 @@ def _yfinance_candles(ticker: str) -> pd.DataFrame | None:
         df = df.rename(columns=rename)
         if "Close" not in df.columns:
             return None
-        if df.columns.duplicated().any():
-            df = df.loc[:, ~df.columns.duplicated(keep="first")]
-        return df if len(df) >= 40 else None
-    except Exception as e:
-        log.warning("yfinance 다운로드 오류 [%s]: %s", ticker, e)
-        return None
-
-
-
-def fetch_ohlcv(ticker: str) -> pd.DataFrame | None:
-    try:
-        import pandas_datareader as pdr
-        from datetime import datetime, timedelta
-        end = datetime.today()
-        start = end - timedelta(days=180)
-        stooq_ticker = ticker + ".US"  # ← 이게 핵심
-        df = pdr.get_data_stooq(stooq_ticker, start, end)
-        if df is None or df.empty:
-            return None
-        df = df.sort_index()
-        if "Close" not in df.columns:
-            return None
         return df if len(df) >= 40 else None
     except Exception as e:
         log.warning("[%s] stooq 오류: %s", ticker, e)
         return None
 
 
-
 # ═══════════════════════════════════════════════════════════════════
-# 종목 수집 (모멘텀용 3중 폴백)
+# 종목 수집
 # ═══════════════════════════════════════════════════════════════════
 
 def fetch_finviz_sp500_gainers() -> list:
@@ -299,63 +210,40 @@ def fetch_finviz_sp500_gainers() -> list:
         return []
 
 
-def _fetch_yfinance_batch_fallback() -> list:
-    if not _YF_AVAILABLE or not SP500_SYMBOLS:
-        return []
+def _fetch_stooq_batch_fallback() -> list:
     try:
-        kw = {"period": "5d", "interval": "1d", "auto_adjust": True, "progress": False}
-        if _YF_SUPPORTS_MLI:
-            kw["multi_level_index"] = False
-        raw = yf.download(SP500_SYMBOLS, **kw)
-        if raw is None or raw.empty:
-            return []
-        if isinstance(raw.columns, pd.MultiIndex):
-            close = raw["Close"].copy() if "Close" in raw.columns.get_level_values(0) else None
-        elif "Close" in raw.columns:
-            close = raw[["Close"]].copy()
-        else:
-            return []
-        if close is None or isinstance(close, pd.Series) or len(close) < 2:
-            return []
-        last = close.iloc[-1]
-        prev = close.iloc[-2]
-        chg  = ((last - prev) / prev * 100).dropna().sort_values(ascending=False)
+        end   = datetime.today()
+        start = end - timedelta(days=10)
         results = []
-        for sym in chg.head(MAX_TICKERS).index:
-            price_val = float(last[sym]) if sym in last.index else 0
-            chg_val   = float(chg[sym])  if sym in chg.index  else 0
-            if price_val <= 0 or np.isnan(price_val):
+        for sym in SP500_SYMBOLS:
+            try:
+                df = pdr.get_data_stooq(sym + ".US", start, end)
+                if df is None or df.empty or len(df) < 2:
+                    continue
+                df = df.sort_index()
+                price = float(df["Close"].iloc[-1])
+                prev  = float(df["Close"].iloc[-2])
+                if price <= 0 or prev <= 0:
+                    continue
+                chg = round((price - prev) / prev * 100, 2)
+                results.append({
+                    "ticker": sym, "company": sym,
+                    "finviz_price": round(price, 2),
+                    "finviz_change": chg,
+                })
+            except Exception:
                 continue
-            results.append({
-                "ticker": str(sym).strip().upper(), "company": str(sym),
-                "finviz_price": round(price_val, 2), "finviz_change": round(chg_val, 2),
-            })
-        log.info("yfinance batch 폴백: %d 종목", len(results))
-        return results
+        results.sort(key=lambda x: x["finviz_change"], reverse=True)
+        result = results[:MAX_TICKERS]
+        log.info("stooq batch 폴백: %d 종목", len(result))
+        return result
     except Exception as e:
-        log.warning("yfinance batch 폴백 오류: %s", e)
+        log.warning("stooq batch 폴백 오류: %s", e)
         return []
-
-
-def _fetch_finnhub_sp500_fallback() -> list:
-    if not FINNHUB_API_KEY:
-        return []
-    def _fetch_quote(sym):
-        q = _finnhub_get("quote", {"symbol": sym})
-        if q and q.get("c", 0) > 0 and q.get("pc", 0) > 0:
-            chg = (q["c"] - q["pc"]) / q["pc"] * 100
-            return {"ticker": sym, "company": sym, "finviz_price": round(q["c"], 2), "finviz_change": round(chg, 2)}
-        return None
-    with ThreadPoolExecutor(max_workers=3) as ex:
-        raw = list(ex.map(_fetch_quote, SP500_SYMBOLS))
-    quotes = sorted([r for r in raw if r], key=lambda x: x["finviz_change"], reverse=True)
-    result = quotes[:MAX_TICKERS]
-    log.info("Finnhub 폴백: %d 종목", len(result))
-    return result
 
 
 # ═══════════════════════════════════════════════════════════════════
-# 단기용 어닝/옵션 경량 분석
+# 어닝/옵션 — 비활성화
 # ═══════════════════════════════════════════════════════════════════
 
 _EMPTY_EARNINGS = {
@@ -370,107 +258,15 @@ _EMPTY_OPTIONS = {
 
 
 def _quick_earnings_check(ticker: str) -> dict:
-    result = {**_EMPTY_EARNINGS, "earnings_signals": []}
-    if not _YF_AVAILABLE:
-        return result
-    try:
-        t = yf.Ticker(ticker)
-        ed = t.earnings_dates
-        if ed is None or ed.empty:
-            return result
-
-        from datetime import date
-        today = date.today()
-
-        future = ed[ed["Reported EPS"].isna()]
-        if not future.empty:
-            next_date = future.index[0].date()
-            days = (next_date - today).days
-            result["days_to_earnings"] = days
-            if 0 <= days <= 7:
-                result["earnings_near"] = True
-                result["earnings_signals"].append(f"⚡ 어닝 {days}일 후 ({next_date})")
-                result["earnings_adj"] += 5
-
-        past = ed.dropna(subset=["Reported EPS"])
-        if not past.empty:
-            row = past.iloc[0]
-            reported = float(row.get("Reported EPS", 0))
-            estimate = float(row.get("EPS Estimate", 0)) if row.get("EPS Estimate") is not None else None
-            if estimate is not None and estimate != 0:
-                result["last_beat"] = reported > estimate
-                result["last_surprise_pct"] = round((reported - estimate) / abs(estimate) * 100, 1)
-                if result["last_beat"] and result["last_surprise_pct"] > 10:
-                    result["earnings_signals"].append(f"🔥 최근 어닝 +{result['last_surprise_pct']}% 서프라이즈")
-                    result["earnings_adj"] += 8
-                elif result["last_beat"]:
-                    result["earnings_signals"].append(f"✅ 최근 어닝 비트 (+{result['last_surprise_pct']}%)")
-                    result["earnings_adj"] += 3
-                elif result["last_surprise_pct"] < -10:
-                    result["earnings_signals"].append(f"📉 최근 어닝 미스 ({result['last_surprise_pct']}%)")
-                    result["earnings_adj"] -= 8
-
-            try:
-                hist = t.history(period="3mo", timeout=10)
-                if hist is not None and not hist.empty:
-                    e_date = pd.to_datetime(past.index[0]).normalize()
-                    after  = hist.index[hist.index >= e_date]
-                    before = hist.index[hist.index < e_date]
-                    if len(after) >= 1 and len(before) >= 1:
-                        r1d = round((float(hist.loc[after[0], "Close"]) - float(hist.loc[before[-1], "Close"])) / float(hist.loc[before[-1], "Close"]) * 100, 2)
-                        result["post_reaction_1d"] = r1d
-                        if result["last_beat"] and r1d < -3:
-                            result["earnings_signals"].append(f"⚠️ 비트에도 -{abs(r1d)}% 하락 (sell the news)")
-                            result["earnings_adj"] -= 5
-                        elif not result["last_beat"] and r1d > 3:
-                            result["earnings_signals"].append(f"🔥 미스에도 +{r1d}% 상승 (악재 선반영)")
-                            result["earnings_adj"] += 5
-            except Exception:
-                pass
-    except Exception as e:
-        log.debug("[%s] 어닝 경량 체크 실패: %s", ticker, e)
-    return result
+    return {**_EMPTY_EARNINGS, "earnings_signals": []}
 
 
 def _quick_options_check(ticker: str) -> dict:
-    result = {**_EMPTY_OPTIONS, "options_signals": []}
-    if not _YF_AVAILABLE:
-        return result
-    try:
-        t = yf.Ticker(ticker)
-        exps = t.options
-        if not exps:
-            return result
-        chain = t.option_chain(exps[0])
-        total_call = chain.calls["volume"].fillna(0).sum() if chain.calls is not None and not chain.calls.empty else 0
-        total_put  = chain.puts["volume"].fillna(0).sum()  if chain.puts is not None and not chain.puts.empty else 0
-        if total_call > 0:
-            pcr = round(total_put / total_call, 2)
-            result["put_call_ratio"] = pcr
-            if pcr > 1.5:
-                result["options_signals"].append(f"🔥 P/C {pcr} → 극단적 공포 (역발상)")
-                result["options_adj"] += 8
-            elif pcr > 1.0:
-                result["options_signals"].append(f"✅ P/C {pcr} → 약세 심리")
-                result["options_adj"] += 3
-            elif pcr < 0.4:
-                result["options_signals"].append(f"⚠️ P/C {pcr} → 과도한 낙관")
-                result["options_adj"] -= 5
-    except Exception as e:
-        log.debug("[%s] 옵션 경량 체크 실패: %s", ticker, e)
-    return result
+    return {**_EMPTY_OPTIONS, "options_signals": []}
 
 
 def _get_earnings_and_options(ticker: str) -> tuple:
-    try:
-        eq = _quick_earnings_check(ticker)
-    except Exception:
-        eq = {**_EMPTY_EARNINGS, "earnings_signals": []}
-    try:
-        oq = _quick_options_check(ticker)
-    except Exception:
-        oq = {**_EMPTY_OPTIONS, "options_signals": []}
-    return eq, oq
+    return _quick_earnings_check(ticker), _quick_options_check(ticker)
 
 
 # ═══════════════════════════════════════════════════════════════════
@@ -601,7 +397,6 @@ def compute_indicators(ticker: str) -> dict | None:
         else:
             result["volume_ratio"] = 1.0
 
-        # ── 선행 신호용 추가 지표 ──
         # 볼린저 밴드
         if len(close) >= 20:
             ma20_bb = close.rolling(20).mean(); std20 = close.rolling(20).std()
@@ -705,16 +500,6 @@ def compute_score_and_status(ind: dict, fv: dict, ticker: str = "") -> dict:
     fc = fv.get("finviz_change", 0)
     if fc >= 5: raw += 5; signals.append(f"✅ Finviz +{fc}%")
 
-    # ── 어닝/옵션 단기 반영 (메모리 절약으로 비활성화) ──
-    if False and ticker:
-        eq, oq = _get_earnings_and_options(ticker)
-        raw += eq["earnings_adj"]
-        raw += oq["options_adj"]
-        signals.extend(eq["earnings_signals"])
-        signals.extend(oq["options_signals"])
-        ind["_earnings"] = eq
-        ind["_options"] = oq
-
     score = normalize_score(raw)
     if score >= 65:   entry = "🟢"; ek = "green"
     elif score >= 45: entry = "⏳"; ek = "wait"
@@ -770,16 +555,6 @@ def compute_presignal_score(ind: dict, ticker: str = "") -> dict:
     elif c1d > 3:    raw -= 8;  signals.append("⚠️ 당일 3%+ 상승")
     if rsi > 70:     raw -= 15; signals.append("⚠️ RSI 과열 → 선행 부적합")
     elif rsi > 60:   raw -= 5;  signals.append("⚠️ RSI 중립 상단")
-
-    # ── 어닝/옵션 선행 반영 (메모리 절약으로 비활성화) ──
-    if False and ticker:
-        eq, oq = _get_earnings_and_options(ticker)
-        raw += eq["earnings_adj"]
-        raw += oq["options_adj"]
-        signals.extend(eq["earnings_signals"])
-        signals.extend(oq["options_signals"])
-        ind["_earnings"] = eq
-        ind["_options"] = oq
 
     score = max(0, min(100, raw))
     if score >= 60:   g = "🔥 강력"; gk = "strong"
@@ -864,8 +639,8 @@ def _compute_conviction_score(ind: dict) -> dict:
     elif c1d > 3: raw -= 10; signals.append("⚠️ 당일 3%+ 상승")
     if rsi > 70:   raw -= 20; signals.append("⚠️ RSI 과열 (>70) → 확신 부적합")
     elif rsi > 60: raw -= 8;  signals.append("⚠️ RSI 중립 상단 (>60)")
-    if ind.get("dead_cross"):            raw -= 15; signals.append("⚠️ 데드크로스 발생 → 하방 압력")
-    if ind.get("cloud_status_raw") == "below": raw -= 5; signals.append("⚠️ 구름 아래 위치")
+    if ind.get("dead_cross"):                  raw -= 15; signals.append("⚠️ 데드크로스 발생 → 하방 압력")
+    if ind.get("cloud_status_raw") == "below": raw -= 5;  signals.append("⚠️ 구름 아래 위치")
 
     score = max(0, min(100, int(round(raw))))
     if score >= 70:   grade = "⭐ 확신"; grade_key = "conviction"
@@ -902,10 +677,8 @@ def analyze_ticker(fv: dict) -> dict | None:
                 ("vwap",0),("atr",0),("target_1",0),("target_2",0),("stop_loss",0),
                 ("volume_ratio",1.0),
             ]},
-            "earnings_near": ind.get("_earnings", {}).get("earnings_near", False),
-            "days_to_earnings": ind.get("_earnings", {}).get("days_to_earnings"),
-            "last_surprise_pct": ind.get("_earnings", {}).get("last_surprise_pct"),
-            "put_call_ratio": ind.get("_options", {}).get("put_call_ratio"),
+            "earnings_near": False, "days_to_earnings": None,
+            "last_surprise_pct": None, "put_call_ratio": None,
             **scoring,
         }
     except Exception as e:
@@ -930,10 +703,8 @@ def analyze_ticker_presignal(ticker: str) -> dict | None:
                 ("cloud_status",""),("cloud_status_raw","inside"),
                 ("bb_lower",0),("target_1",0),("target_2",0),("stop_loss",0),
             ]},
-            "earnings_near": ind.get("_earnings", {}).get("earnings_near", False),
-            "days_to_earnings": ind.get("_earnings", {}).get("days_to_earnings"),
-            "last_surprise_pct": ind.get("_earnings", {}).get("last_surprise_pct"),
-            "put_call_ratio": ind.get("_options", {}).get("put_call_ratio"),
+            "earnings_near": False, "days_to_earnings": None,
+            "last_surprise_pct": None, "put_call_ratio": None,
             **scoring,
         }
     except Exception as e:
@@ -966,46 +737,35 @@ def analyze_ticker_conviction(ticker: str) -> dict | None:
 
 
 # ═══════════════════════════════════════════════════════════════════
-# 선행 신호 — batch 1차 필터링
+# 선행/확신 1차 필터 — stooq 버전
 # ═══════════════════════════════════════════════════════════════════
 
 def _get_presignal_candidates(symbols: list) -> list:
-    if not _YF_AVAILABLE or not symbols:
-        return symbols[:40]
     try:
-        kw = {"period": "3mo", "interval": "1d", "auto_adjust": True, "progress": False}
-        if _YF_SUPPORTS_MLI:
-            kw["multi_level_index"] = False
-        raw = yf.download(symbols, **kw)
-        if raw is None or raw.empty:
-            return symbols[:40]
-        if isinstance(raw.columns, pd.MultiIndex):
-            close  = raw["Close"].copy()  if "Close"  in raw.columns.get_level_values(0) else None
-            volume = raw["Volume"].copy() if "Volume" in raw.columns.get_level_values(0) else None
-        else:
-            close  = raw[["Close"]]  if "Close"  in raw.columns else None
-            volume = raw[["Volume"]] if "Volume" in raw.columns else None
-        if close is None or isinstance(close, pd.Series) or len(close) < 14:
-            return symbols[:40]
-        last = close.iloc[-1]; prev = close.iloc[-2]
-        chg = ((last - prev) / prev * 100).dropna()
-        if volume is not None and not isinstance(volume, pd.Series) and len(volume) >= 20:
-            vol_last  = volume.iloc[-1]
-            vol_avg   = volume.tail(20).mean()
-            vol_ratio = (vol_last / vol_avg.replace(0, np.nan)).dropna()
-        else:
-            vol_ratio = pd.Series(dtype=float)
+        end   = datetime.today()
+        start = end - timedelta(days=90)
         candidates = []
-        for sym in chg.index:
-            c = abs(float(chg[sym])) if sym in chg.index else 99
-            if c > 5:
+        for sym in symbols:
+            try:
+                df = pdr.get_data_stooq(sym + ".US", start, end)
+                if df is None or df.empty or len(df) < 2:
+                    continue
+                df = df.sort_index()
+                price = float(df["Close"].iloc[-1])
+                prev  = float(df["Close"].iloc[-2])
+                if price <= 0 or prev <= 0:
+                    continue
+                chg = abs((price - prev) / prev * 100)
+                if chg > 5:
+                    continue
+                vol_last = float(df["Volume"].iloc[-1])
+                vol_avg  = float(df["Volume"].tail(20).mean())
+                vr = vol_last / vol_avg if vol_avg > 0 else 1.0
+                candidates.append((sym, chg, vr))
+            except Exception:
                 continue
-            vr = float(vol_ratio[sym]) if sym in vol_ratio.index else 1.0
-            if np.isnan(vr):
-                vr = 1.0
-            candidates.append((sym, c, vr))
         candidates.sort(key=lambda x: x[2], reverse=True)
-        result = [str(c[0]) for c in candidates[:40]]
+        result = [c[0] for c in candidates[:40]]
         log.info("선행 신호 1차 필터: %d → %d 종목", len(symbols), len(result))
         return result if result else symbols[:40]
     except Exception as e:
@@ -1023,16 +783,13 @@ def analyze() -> dict:
 
     candidates = fetch_finviz_sp500_gainers()
     if len(candidates) < MAX_TICKERS:
-        log.info("Finviz %d개 → yfinance batch로 보충", len(candidates))
-        extra = _fetch_yfinance_batch_fallback()
+        log.info("Finviz %d개 → stooq batch로 보충", len(candidates))
+        extra = _fetch_stooq_batch_fallback()
         existing = {c["ticker"] for c in candidates}
         for e in extra:
             if e["ticker"] not in existing:
                 candidates.append(e); existing.add(e["ticker"])
         candidates = candidates[:MAX_TICKERS]
-    if not candidates:
-        log.info("yfinance 실패 → Finnhub 폴백")
-        candidates = _fetch_finnhub_sp500_fallback()
     if not candidates:
         return {"results": [], "analyzed_at": analyzed_at, "green": 0, "wait": 0, "stop": 0, "error": "데이터 소스 없음"}
 
