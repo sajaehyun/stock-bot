@@ -1,16 +1,15 @@
 """
 S&P 500 + Semiconductor Momentum Scanner + Pre-Signal Scanner
 ──────────────────────────────────────────────────────────────
+데이터 소스: Twelve Data API (무료 800호출/일)
 Mode 1 (analyze):            당일 상승 종목 → 기술적 점수화
-Mode 2 (analyze_presignal):  전체 스캔 → "곧 움직일" 선행 신호 탐색
+Mode 2 (analyze_presignal):  전체 스캔 → 선행 신호 탐색
 Mode 3 (analyze_conviction): 7개 독립 필터 + 오버랩 보너스
-Universes: S&P 500 / SOX (반도체 30)
 """
 
 import os
 import json
 import time
-import random
 import logging
 import pathlib
 from datetime import datetime, timedelta, timezone
@@ -19,12 +18,11 @@ from concurrent.futures import ThreadPoolExecutor, as_completed
 import requests
 import numpy as np
 import pandas as pd
-import pandas_datareader as pdr
 from dotenv import load_dotenv
 
 # ──────────────────────────── 환경 변수 ────────────────────────────
 load_dotenv()
-FINNHUB_API_KEY = os.getenv("FINNHUB_API_KEY", "")
+TWELVE_DATA_KEY = os.getenv("TWELVE_DATA_KEY", "")
 TELEGRAM_TOKEN  = os.getenv("TELEGRAM_TOKEN", "")
 CHAT_ID         = os.getenv("CHAT_ID", "")
 
@@ -32,7 +30,7 @@ CHAT_ID         = os.getenv("CHAT_ID", "")
 KST = timezone(timedelta(hours=9))
 
 # ──────────────────────────── 상수 ─────────────────────────────────
-MAX_WORKERS     = 5
+MAX_WORKERS     = 4   # Twelve Data 무료 분당 8회 → 4 워커로 여유있게
 MAX_TICKERS     = 15
 RAW_SCORE_MAX   = 140
 RAW_SCORE_MIN   = -80
@@ -49,6 +47,8 @@ CONVICTION_DIR = pathlib.Path("conviction")
 CONVICTION_DIR.mkdir(exist_ok=True)
 CONVICTION_MAX_RESULTS = 20
 
+TD_BASE = "https://api.twelvedata.com"
+
 # ──────────────────────────── 종목 유니버스 ────────────────────────
 SP500_SYMBOLS = [
     "AAPL","MSFT","NVDA","AMZN","META","GOOGL","GOOG","BRK-B","LLY","AVGO",
@@ -57,7 +57,7 @@ SP500_SYMBOLS = [
     "TMO","ACN","MCD","ADBE","LIN","DHR","CSCO","ABT","TXN","NEE",
     "WFC","PM","INTU","AMGN","MS","RTX","SPGI","HON","GE","CAT",
     "ISRG","BLK","VRTX","AXP","SYK","BKNG","PLD","TJX","GILD","ADI",
-    "MDLZ","MRSH","CB","MO","SO","DUK","CL","BSX","EOG","ITW",
+    "MDLZ","CB","MO","SO","DUK","CL","BSX","EOG","ITW",
     "REGN","CME","PH","SLB","ZTS","MCO","USB","FISV","HCA","BDX",
     "CI","ICE","NOC","GD","MET","TGT","F","GM","UBER","NOW",
     "PANW","SNOW","COIN","PLTR","ARM","SMCI","DELL","HPQ","MU","QCOM",
@@ -86,12 +86,139 @@ logging.basicConfig(
 )
 log = logging.getLogger(__name__)
 
-_FV_AVAILABLE = False
-try:
-    from finvizfinance.screener.overview import Overview
-    _FV_AVAILABLE = True
-except ImportError:
-    log.warning("finvizfinance 미설치 → Finviz 스크리너 비활성화")
+
+# ═══════════════════════════════════════════════════════════════════
+# Twelve Data API — OHLCV 수집
+# ═══════════════════════════════════════════════════════════════════
+
+def _td_get(endpoint: str, params: dict, retries: int = 3) -> dict | None:
+    """Twelve Data API 호출 (rate limit 자동 대기)"""
+    if not TWELVE_DATA_KEY:
+        log.error("TWELVE_DATA_KEY 미설정 — Render 환경변수를 확인하세요")
+        return None
+    params["apikey"] = TWELVE_DATA_KEY
+    url = f"{TD_BASE}/{endpoint}"
+    for attempt in range(retries):
+        try:
+            resp = requests.get(url, params=params, timeout=15)
+            if resp.status_code == 429:
+                wait = 15 * (attempt + 1)
+                log.warning("Twelve Data rate limit → %d초 대기", wait)
+                time.sleep(wait)
+                continue
+            if resp.status_code != 200:
+                log.warning("Twelve Data HTTP %d: %s", resp.status_code, resp.text[:100])
+                return None
+            data = resp.json()
+            if data.get("status") == "error":
+                log.warning("Twelve Data 오류 [%s]: %s", params.get("symbol",""), data.get("message",""))
+                return None
+            return data
+        except requests.exceptions.Timeout:
+            log.warning("[%s] Twelve Data timeout (시도 %d/%d)", params.get("symbol",""), attempt+1, retries)
+            time.sleep(5)
+        except Exception as e:
+            log.warning("[%s] Twelve Data 오류: %s", params.get("symbol",""), e)
+            time.sleep(3)
+    return None
+
+
+def fetch_ohlcv(ticker: str, days: int = 180) -> pd.DataFrame | None:
+    """Twelve Data에서 일봉 OHLCV 수집"""
+    # BRK-B → BRK/B 변환 (Twelve Data 표기)
+    td_symbol = ticker.replace("-", "/")
+    outputsize = min(days, 500)
+    data = _td_get("time_series", {
+        "symbol": td_symbol,
+        "interval": "1day",
+        "outputsize": outputsize,
+        "order": "ASC",
+    })
+    if data is None:
+        return None
+    values = data.get("values")
+    if not values:
+        log.warning("[%s] Twelve Data 데이터 없음", ticker)
+        return None
+    try:
+        df = pd.DataFrame(values)
+        df["datetime"] = pd.to_datetime(df["datetime"])
+        df = df.set_index("datetime").sort_index()
+        df = df.rename(columns={
+            "open": "Open", "high": "High",
+            "low": "Low", "close": "Close", "volume": "Volume"
+        })
+        for col in ["Open", "High", "Low", "Close", "Volume"]:
+            df[col] = pd.to_numeric(df[col], errors="coerce")
+        df = df.dropna(subset=["Close"])
+        if len(df) < 40:
+            log.warning("[%s] 데이터 부족: %d행", ticker, len(df))
+            return None
+        return df
+    except Exception as e:
+        log.warning("[%s] OHLCV 파싱 오류: %s", ticker, e)
+        return None
+
+
+# ═══════════════════════════════════════════════════════════════════
+# 종목 수집 — Twelve Data 배치 quote
+# ═══════════════════════════════════════════════════════════════════
+
+def _fetch_batch_quotes(symbols: list) -> dict:
+    """최대 120개 종목을 한 번에 조회 (1 credit)"""
+    result = {}
+    # BRK-B 처리
+    td_symbols = [s.replace("-", "/") for s in symbols]
+    batch_str = ",".join(td_symbols)
+    data = _td_get("quote", {"symbol": batch_str})
+    if data is None:
+        return result
+    # 단일 종목이면 dict, 다수이면 {symbol: dict}
+    if isinstance(data, dict) and "symbol" in data:
+        sym = data["symbol"].replace("/", "-")
+        result[sym] = data
+    elif isinstance(data, dict):
+        for k, v in data.items():
+            if isinstance(v, dict) and v.get("status") != "error":
+                sym = k.replace("/", "-")
+                result[sym] = v
+    return result
+
+
+def _get_top_movers(symbols: list, top_n: int = 15) -> list:
+    """당일 상승률 상위 종목 선별"""
+    log.info("Twelve Data quote 배치 조회: %d 종목", len(symbols))
+    # 120개씩 청크
+    all_quotes = {}
+    for i in range(0, len(symbols), 100):
+        chunk = symbols[i:i+100]
+        quotes = _fetch_batch_quotes(chunk)
+        all_quotes.update(quotes)
+        if i + 100 < len(symbols):
+            time.sleep(1)  # rate limit 여유
+
+    candidates = []
+    for sym, q in all_quotes.items():
+        try:
+            price = float(q.get("close") or q.get("previous_close") or 0)
+            prev  = float(q.get("previous_close") or 0)
+            if price <= 0 or prev <= 0:
+                continue
+            chg = round((price - prev) / prev * 100, 2)
+            candidates.append({
+                "ticker": sym,
+                "company": q.get("name", sym),
+                "finviz_price": round(price, 2),
+                "finviz_change": chg,
+            })
+        except Exception:
+            continue
+
+    candidates.sort(key=lambda x: x["finviz_change"], reverse=True)
+    result = candidates[:top_n]
+    log.info("상위 등락률 종목: %d개 선별", len(result))
+    return result
+
 
 # ═══════════════════════════════════════════════════════════════════
 # 유틸리티
@@ -109,15 +236,6 @@ def safe_float(val, default: float = 0.0) -> float:
         return default if (np.isnan(v) or np.isinf(v)) else v
     except (TypeError, ValueError, IndexError):
         return default
-
-
-def _parse_pct(s) -> float:
-    if isinstance(s, (int, float)):
-        return float(s)
-    try:
-        return float(str(s).replace("%", "").replace(",", "").strip())
-    except (ValueError, TypeError):
-        return 0.0
 
 
 def normalize_score(raw: float) -> int:
@@ -147,122 +265,17 @@ def send_telegram(message: str) -> None:
 
 
 # ═══════════════════════════════════════════════════════════════════
-# OHLCV — stooq 전용
+# 어닝/옵션 — 비활성화 (데이터 소스 없음)
 # ═══════════════════════════════════════════════════════════════════
-
-def fetch_ohlcv(ticker: str, days: int = 180) -> pd.DataFrame | None:
-    try:
-        end   = datetime.today()
-        start = end - timedelta(days=days)
-        stooq_ticker = ticker + ".US"
-        df = pdr.get_data_stooq(stooq_ticker, start, end)
-        if df is None or df.empty:
-            log.warning("[%s] stooq 데이터 없음", ticker)
-            return None
-        df = df.sort_index()
-        rename = {}
-        for c in df.columns:
-            cl = str(c).lower().strip()
-            if cl == "close":    rename[c] = "Close"
-            elif cl == "open":   rename[c] = "Open"
-            elif cl == "high":   rename[c] = "High"
-            elif cl == "low":    rename[c] = "Low"
-            elif cl == "volume": rename[c] = "Volume"
-        df = df.rename(columns=rename)
-        if "Close" not in df.columns:
-            return None
-        return df if len(df) >= 40 else None
-    except Exception as e:
-        log.warning("[%s] stooq 오류: %s", ticker, e)
-        return None
-
-
-# ═══════════════════════════════════════════════════════════════════
-# 종목 수집
-# ═══════════════════════════════════════════════════════════════════
-
-def fetch_finviz_sp500_gainers() -> list:
-    if not _FV_AVAILABLE:
-        return []
-    try:
-        foverview = Overview()
-        try:
-            foverview.set_filter(signal="Top Gainers", filters_dict={"Index": "S&P 500"})
-        except (TypeError, AttributeError):
-            foverview.set_filter(filters_dict={"Index": "S&P 500"})
-        df = foverview.screener_view()
-        if df is None or df.empty:
-            return []
-        results = []
-        for _, row in df.head(MAX_TICKERS).iterrows():
-            ticker = str(row.get("Ticker", "")).strip().upper()
-            if not ticker:
-                continue
-            results.append({
-                "ticker": ticker, "company": str(row.get("Company", "")),
-                "finviz_price": safe_float(row.get("Price"), 0),
-                "finviz_change": _parse_pct(row.get("Change", 0)),
-            })
-        log.info("Finviz: %d 종목 수집", len(results))
-        return results
-    except Exception as e:
-        log.warning("Finviz 오류: %s", e)
-        return []
-
-
-def _fetch_stooq_batch_fallback() -> list:
-    try:
-        end   = datetime.today()
-        start = end - timedelta(days=10)
-        results = []
-        for sym in SP500_SYMBOLS:
-            try:
-                df = pdr.get_data_stooq(sym + ".US", start, end)
-                if df is None or df.empty or len(df) < 2:
-                    continue
-                df = df.sort_index()
-                price = float(df["Close"].iloc[-1])
-                prev  = float(df["Close"].iloc[-2])
-                if price <= 0 or prev <= 0:
-                    continue
-                chg = round((price - prev) / prev * 100, 2)
-                results.append({
-                    "ticker": sym, "company": sym,
-                    "finviz_price": round(price, 2),
-                    "finviz_change": chg,
-                })
-            except Exception:
-                continue
-        results.sort(key=lambda x: x["finviz_change"], reverse=True)
-        result = results[:MAX_TICKERS]
-        log.info("stooq batch 폴백: %d 종목", len(result))
-        return result
-    except Exception as e:
-        log.warning("stooq batch 폴백 오류: %s", e)
-        return []
-
-
-# ═══════════════════════════════════════════════════════════════════
-# 어닝/옵션 — 비활성화
-# ═══════════════════════════════════════════════════════════════════
-
-_EMPTY_EARNINGS = {
-    "earnings_near": False, "days_to_earnings": None, "last_beat": None,
-    "last_surprise_pct": None, "post_reaction_1d": None,
-    "earnings_signals": [], "earnings_adj": 0,
-}
-
-_EMPTY_OPTIONS = {
-    "put_call_ratio": None, "options_signals": [], "options_adj": 0,
-}
-
 
 def _quick_earnings_check(ticker: str) -> dict:
-    return {**_EMPTY_EARNINGS, "earnings_signals": []}
+    return {"earnings_near": False, "days_to_earnings": None, "last_beat": None,
+            "last_surprise_pct": None, "post_reaction_1d": None,
+            "earnings_signals": [], "earnings_adj": 0}
 
 
 def _quick_options_check(ticker: str) -> dict:
-    return {**_EMPTY_OPTIONS, "options_signals": []}
+    return {"put_call_ratio": None, "options_signals": [], "options_adj": 0}
 
 
 def _get_earnings_and_options(ticker: str) -> tuple:
@@ -498,7 +511,7 @@ def compute_score_and_status(ind: dict, fv: dict, ticker: str = "") -> dict:
     elif vr >= 1.5: raw += 5;  signals.append(f"✅ 거래량 증가 ({vr}x)")
 
     fc = fv.get("finviz_change", 0)
-    if fc >= 5: raw += 5; signals.append(f"✅ Finviz +{fc}%")
+    if fc >= 5: raw += 5; signals.append(f"✅ 당일 +{fc}%")
 
     score = normalize_score(raw)
     if score >= 65:   entry = "🟢"; ek = "green"
@@ -737,40 +750,45 @@ def analyze_ticker_conviction(ticker: str) -> dict | None:
 
 
 # ═══════════════════════════════════════════════════════════════════
-# 선행/확신 1차 필터 — stooq 버전
+# 선행/확신 1차 필터 — Twelve Data quote 배치
 # ═══════════════════════════════════════════════════════════════════
 
 def _get_presignal_candidates(symbols: list) -> list:
-    try:
-        end   = datetime.today()
-        start = end - timedelta(days=90)
-        candidates = []
-        for sym in symbols:
-            try:
-                df = pdr.get_data_stooq(sym + ".US", start, end)
-                if df is None or df.empty or len(df) < 2:
-                    continue
-                df = df.sort_index()
-                price = float(df["Close"].iloc[-1])
-                prev  = float(df["Close"].iloc[-2])
-                if price <= 0 or prev <= 0:
-                    continue
-                chg = abs((price - prev) / prev * 100)
-                if chg > 5:
-                    continue
-                vol_last = float(df["Volume"].iloc[-1])
-                vol_avg  = float(df["Volume"].tail(20).mean())
-                vr = vol_last / vol_avg if vol_avg > 0 else 1.0
-                candidates.append((sym, chg, vr))
-            except Exception:
-                continue
-        candidates.sort(key=lambda x: x[2], reverse=True)
-        result = [c[0] for c in candidates[:40]]
-        log.info("선행 신호 1차 필터: %d → %d 종목", len(symbols), len(result))
-        return result if result else symbols[:40]
-    except Exception as e:
-        log.warning("선행 신호 1차 필터 오류: %s", e)
+    """소폭 등락 + 거래량 이상 종목 1차 필터링"""
+    log.info("선행 신호 1차 필터 시작: %d 종목", len(symbols))
+    all_quotes = {}
+    for i in range(0, len(symbols), 100):
+        chunk = symbols[i:i+100]
+        quotes = _fetch_batch_quotes(chunk)
+        all_quotes.update(quotes)
+        if i + 100 < len(symbols):
+            time.sleep(1)
+
+    if not all_quotes:
+        log.warning("quote 배치 실패 → 전체 종목 사용")
         return symbols[:40]
+
+    candidates = []
+    for sym, q in all_quotes.items():
+        try:
+            price = float(q.get("close") or 0)
+            prev  = float(q.get("previous_close") or 0)
+            if price <= 0 or prev <= 0:
+                continue
+            chg = abs((price - prev) / prev * 100)
+            if chg > 5:
+                continue  # 이미 많이 움직인 종목 제외
+            vol = float(q.get("volume") or 0)
+            avg_vol = float(q.get("average_volume") or vol or 1)
+            vr = vol / avg_vol if avg_vol > 0 else 1.0
+            candidates.append((sym, chg, vr))
+        except Exception:
+            continue
+
+    candidates.sort(key=lambda x: x[2], reverse=True)
+    result = [c[0] for c in candidates[:40]]
+    log.info("선행 신호 1차 필터: %d → %d 종목", len(symbols), len(result))
+    return result if result else symbols[:40]
 
 
 # ═══════════════════════════════════════════════════════════════════
@@ -781,17 +799,11 @@ def analyze() -> dict:
     analyzed_at = datetime.now(KST).strftime("%Y-%m-%d %H:%M:%S (KST)")
     log.info("═══ 모멘텀 분석 시작: %s ═══", analyzed_at)
 
-    candidates = fetch_finviz_sp500_gainers()
-    if len(candidates) < MAX_TICKERS:
-        log.info("Finviz %d개 → stooq batch로 보충", len(candidates))
-        extra = _fetch_stooq_batch_fallback()
-        existing = {c["ticker"] for c in candidates}
-        for e in extra:
-            if e["ticker"] not in existing:
-                candidates.append(e); existing.add(e["ticker"])
-        candidates = candidates[:MAX_TICKERS]
+    candidates = _get_top_movers(SP500_SYMBOLS, top_n=MAX_TICKERS)
     if not candidates:
-        return {"results": [], "analyzed_at": analyzed_at, "green": 0, "wait": 0, "stop": 0, "error": "데이터 소스 없음"}
+        return {"results": [], "analyzed_at": analyzed_at,
+                "green": 0, "wait": 0, "stop": 0,
+                "error": "Twelve Data 데이터 수신 실패 — TWELVE_DATA_KEY 확인 필요"}
 
     log.info("후보 종목: %d개", len(candidates))
     results = []
@@ -805,14 +817,16 @@ def analyze() -> dict:
                 log.error("[%s] future 오류: %s", fmap[f], e)
 
     if not results:
-        return {"results": [], "analyzed_at": analyzed_at, "green": 0, "wait": 0, "stop": 0, "error": "전체 분석 실패"}
+        return {"results": [], "analyzed_at": analyzed_at,
+                "green": 0, "wait": 0, "stop": 0, "error": "전체 분석 실패"}
 
     results.sort(key=lambda x: x["score"], reverse=True)
     gc = sum(1 for r in results if r["entry_key"] == "green")
     wc = sum(1 for r in results if r["entry_key"] == "wait")
     sc = sum(1 for r in results if r["entry_key"] == "stop")
 
-    save_data = {"analyzed_at": analyzed_at, "total": len(results), "green": gc, "wait": wc, "stop": sc, "results": results}
+    save_data = {"analyzed_at": analyzed_at, "total": len(results),
+                 "green": gc, "wait": wc, "stop": sc, "results": results}
     ts = datetime.now(KST).strftime(HISTORY_TS_FMT)
     try:
         with open(HISTORY_DIR / f"{ts}.json", "w", encoding="utf-8") as f:
@@ -894,7 +908,8 @@ def analyze_presignal(universe: str = "sp500") -> dict:
     for i, r in enumerate(top5, 1):
         sigs = " | ".join(r.get("presignal_signals", [])[:3])
         lines.append(f"{i}. <b>{_escape_html(r['ticker'])}</b> {_escape_html(r['presignal_grade'])} "
-                     f"점수:{r['presignal_score']} | ${r['price']} ({r['change_1d']:+.1f}%)\n   → {_escape_html(sigs)}")
+                     f"점수:{r['presignal_score']} | ${r['price']} ({r['change_1d']:+.1f}%)\n"
+                     f"   → {_escape_html(sigs)}")
     send_telegram("\n".join(lines))
 
     log.info("═══ 선행 신호 스캔 완료 [%s] ═══", uni_name)
@@ -974,18 +989,6 @@ def analyze_conviction(universe: str = "sp500+sox") -> dict:
 # ═══════════════════════════════════════════════════════════════════
 # CLI
 # ═══════════════════════════════════════════════════════════════════
-def test_stooq():
-    try:
-        import pandas_datareader as pdr
-        from datetime import datetime, timedelta
-        df = pdr.get_data_stooq("AAPL.US", datetime.today()-timedelta(days=10), datetime.today())
-        if df is None or df.empty:
-            log.error("stooq 테스트 실패: 데이터 없음")
-        else:
-            log.info("stooq 테스트 성공: %s", df.tail(2))
-    except Exception as e:
-        log.error("stooq 테스트 오류: %s", e)
-
 
 if __name__ == "__main__":
     import sys
