@@ -1,4 +1,4 @@
-yfinance>=0.2.40
+
 requests
 Flask
 python-dotenv
@@ -8,5 +8,4 @@ numpy
 lxml
 beautifulsoup4
 rich
-finvizfinance>=0.14.7
-pandas-datareader
+finvizfinance
