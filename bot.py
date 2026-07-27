@@ -246,10 +246,6 @@ def _yfinance_candles(ticker: str) -> pd.DataFrame | None:
 
 
 def fetch_ohlcv(ticker: str) -> pd.DataFrame | None:
-    df = _finnhub_candles(ticker)
-    if df is not None:
-        return df
-    # stooq fallback
     try:
         import pandas_datareader as pdr
         from datetime import datetime, timedelta
@@ -259,17 +255,13 @@ def fetch_ohlcv(ticker: str) -> pd.DataFrame | None:
         if df is None or df.empty:
             return None
         df = df.sort_index()
-        df.index.name = "Date"
-        df = df.rename(columns={
-            "Open": "Open", "High": "High",
-            "Low": "Low", "Close": "Close", "Volume": "Volume"
-        })
         if "Close" not in df.columns:
             return None
         return df if len(df) >= 40 else None
     except Exception as e:
         log.warning("[%s] stooq 오류: %s", ticker, e)
         return None
+
 
 
 
