@@ -6,7 +6,7 @@ Calculates win rates, average returns, and Sharpe ratios for 3, 5, 10, 20 day ho
 import os, json, pathlib, logging
 from datetime import datetime, timedelta
 import pandas as pd
-import yfinance as yf
+
 import numpy as np
 
 LOG = logging.getLogger("backtest")
