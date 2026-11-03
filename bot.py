@@ -24,8 +24,8 @@ from dotenv import load_dotenv
 # ──────────────────────────── 환경 변수 ────────────────────────────
 load_dotenv()
 FINNHUB_API_KEY = os.getenv("FINNHUB_API_KEY", "")
-TELEGRAM_TOKEN  = os.getenv("TELEGRAM_TOKEN", "")
-CHAT_ID         = os.getenv("CHAT_ID", "")
+TELEGRAM_TOKEN  = os.getenv("TELEGRAM_TOKEN") or os.getenv("TELEGRAM_BOT_TOKEN", "")
+CHAT_ID         = os.getenv("CHAT_ID") or os.getenv("TELEGRAM_CHAT_ID", "")
 
 # ──────────────────────────── 시간대 ────────────────────────────────
 KST = timezone(timedelta(hours=9))
@@ -158,21 +158,26 @@ def _escape_html(text: str) -> str:
 # Telegram
 # ═══════════════════════════════════════════════════════════════════
 
-def send_telegram(message: str) -> None:
+def send_telegram(message: str) -> bool:
     if not TELEGRAM_TOKEN or not CHAT_ID:
-        log.info("Telegram 토큰 미설정 → 전송 스킵")
-        return
+        if os.getenv("REQUIRE_TELEGRAM") == "1":
+            raise RuntimeError("Telegram configuration is missing: TELEGRAM_TOKEN and CHAT_ID")
+        log.warning("Telegram configuration is missing; delivery skipped")
+        return False
     url = f"https://api.telegram.org/bot{TELEGRAM_TOKEN}/sendMessage"
     try:
         resp = requests.post(
             url,
             json={"chat_id": CHAT_ID, "text": message[:4000], "parse_mode": "HTML"},
-            timeout=10,
+            timeout=20,
         )
-        if resp.status_code != 200:
-            log.warning("Telegram 전송 실패: %s", resp.text[:200])
-    except Exception as e:
-        log.warning("Telegram 오류: %s", e)
+        if resp.status_code != 200 or not resp.json().get("ok"):
+            raise RuntimeError(f"Telegram delivery failed (HTTP {resp.status_code})")
+    except requests.RequestException:
+        # Request exception strings can include the bot token in the URL.
+        raise RuntimeError("Telegram request failed") from None
+    log.info("Telegram delivery confirmed")
+    return True
 
 
 # ═══════════════════════════════════════════════════════════════════
@@ -1229,14 +1234,23 @@ def analyze_conviction(universe: str = "sp500+sox") -> dict:
     log.info("스캔 %d종목 | ⭐ %d | 🔥 %d | ✅ %d | ⬜ %d", len(results), cc, sc, wc, wk)
     return save_data
 
-if __name__ == "__main__":
-    import sys
-    mode = sys.argv[1] if len(sys.argv) > 1 else "momentum"
-    uni = sys.argv[2] if len(sys.argv) > 2 else "sp500+sox"
+def main(argv=None) -> int:
+    import argparse
+    parser = argparse.ArgumentParser(description="Run the stock scanner")
+    parser.add_argument("mode", nargs="?", default="momentum",
+                        choices=("momentum", "presignal", "conviction"))
+    parser.add_argument("universe", nargs="?", default="sp500+sox",
+                        choices=tuple(UNIVERSE_MAP))
+    args = parser.parse_args(argv)
+    scanners = {"momentum": format_mode1, "presignal": analyze_presignal,
+                "conviction": analyze_conviction}
+    result = scanners[args.mode](args.universe)
+    if not result or result.get("error") or not result.get("results"):
+        log.error("Analysis failed: %s", (result or {}).get("error", "No results"))
+        return 1
+    log.info("Analysis completed with %d results", len(result["results"]))
+    return 0
 
-    if mode == "presignal":
-        analyze_presignal(uni)
-    elif mode == "conviction":
-        analyze_conviction(uni)
-    else:
-        analyze()
+
+if __name__ == "__main__":
+    raise SystemExit(main())

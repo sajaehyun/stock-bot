@@ -24,13 +24,44 @@ on:
     - cron: '0 14 * * *'
     - cron: '30 14 * * *'
   workflow_dispatch:
+permissions:
+  contents: read
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: false
+
 jobs:
-  run:
+  analyze:
     runs-on: ubuntu-latest
+    timeout-minutes: 25
+    env:
+      PYTHONUNBUFFERED: '1'
+      REQUIRE_TELEGRAM: '1'
+      TELEGRAM_TOKEN: ${{ secrets.TELEGRAM_TOKEN || secrets.TELEGRAM_BOT_TOKEN }}
+      CHAT_ID: ${{ secrets.CHAT_ID || secrets.TELEGRAM_CHAT_ID }}
+      FINNHUB_API_KEY: ${{ secrets.FINNHUB_API_KEY }}
     steps:
-      - uses: actions/checkout@v3
-      - uses: actions/setup-python@v4
+      - uses: actions/checkout@v7
         with:
-          python-version: '3.9'
-      - run: pip install -r requirements.txt
-      - run: python intraday_bot.py
+          persist-credentials: false
+      - uses: actions/setup-python@v7
+        with:
+          python-version: '3.12'
+          cache: pip
+      - name: Install dependencies
+        run: python -m pip install -r requirements.txt
+      - name: Verify scanner regression tests
+        run: python -m unittest discover -s tests -v
+      - name: Run stock analysis
+        run: python intraday_bot.py
+      - name: Save analysis results
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: intraday-bot-results
+          path: |
+            history/*.json
+            intraday_reports/*.json
+          retention-days: 7
+          if-no-files-found: warn

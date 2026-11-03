@@ -11,6 +11,22 @@
 
 ## 설정 방법
 
+### GitHub Actions
+
+세 분석 워크플로는 Python 3.12와 동일한 의존성을 사용합니다. 예약 시간은 한국 시간 기준이며 GitHub 대기열에 따라 지연될 수 있습니다.
+
+| 파일 | 예약 | 실행 |
+| --- | --- | --- |
+| `analyze.yml` | 매일 09:00 | 일봉 모멘텀 분석 (`python bot.py`) |
+| `daily-bot.yml` | 매일 13:00~23:00 매시간 | 일봉 모멘텀 분석 (`python bot.py`) |
+| `intraday-bot.yml` | 매일 13:00~23:30 30분 간격 | 복원한 30분봉 분석 (`python intraday_bot.py`) |
+
+모두 수동 실행할 수 있습니다. 저장소 Actions Secrets에 `TELEGRAM_TOKEN`과 `CHAT_ID`를 등록합니다 (`TELEGRAM_BOT_TOKEN`, `TELEGRAM_CHAT_ID` 이름도 지원). `FINNHUB_API_KEY`는 선택 사항입니다. 토큰을 소스에 넣지 않습니다.
+
+분석 결과는 각 실행의 Artifacts에서 7일 동안 내려받을 수 있습니다. 전체 데이터 수집 실패나 Telegram 전송 실패는 실행 실패로 표시합니다. 장중 분석에서 유효한 데이터는 있으나 조건에 맞는 신호가 없는 경우에는 정상적으로 '신호 없음'을 전송합니다.
+
+회귀 검증: `python -m unittest discover -s tests -v`
+
 ### 1. 환경 변수 설정
 프로젝트 루트 폴더에 `.env` 파일을 생성하고 아래 내용을 입력합니다.
 배포 시에도 동일한 환경 변수를 Repository Secrets 등에 추가해야 합니다.
