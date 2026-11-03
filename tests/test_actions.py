@@ -13,7 +13,29 @@ import bot
 import intraday_bot
 
 
+class MarketDataTests(unittest.TestCase):
+    def test_batch_fallback_uses_each_tickers_last_valid_prices(self):
+        close = pd.DataFrame({'NVDA': [100., 110., np.nan],
+                              'AMD': [50., np.nan, 60.],
+                              'EMPTY': [np.nan, np.nan, np.nan],
+                              'ZERO': [0., 5., np.nan]})
+        frame = pd.concat({'Close': close}, axis=1)
+        with patch.object(bot, '_YF_AVAILABLE', True), patch.object(bot.yf, 'download', return_value=frame):
+            rows = bot._fetch_yfinance_batch_fallback()
+        self.assertEqual([row['ticker'] for row in rows], ['AMD', 'NVDA'])
+        self.assertEqual([row['finviz_change'] for row in rows], [20., 10.])
+
+
 class EntryPointTests(unittest.TestCase):
+    def setUp(self):
+        self.previous = Path.cwd()
+        self.directory = tempfile.TemporaryDirectory(dir=self.previous)
+        os.chdir(self.directory.name)
+
+    def tearDown(self):
+        os.chdir(self.previous)
+        self.directory.cleanup()
+
     def test_default_cli_calls_existing_momentum_scanner(self):
         with patch.object(bot, 'format_mode1', return_value={'results': [{}]}) as scan:
             self.assertEqual(bot.main([]), 0)

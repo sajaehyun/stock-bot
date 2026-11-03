@@ -262,6 +262,8 @@ def _yfinance_candles(ticker: str) -> pd.DataFrame | None:
             return None
         if df.columns.duplicated().any():
             df = df.loc[:, ~df.columns.duplicated(keep="first")]
+        df = df.replace([np.inf, -np.inf], np.nan).dropna(subset=["Close", "High", "Low", "Volume"])
+        df = df.loc[df["Close"] > 0]
         return df if len(df) >= 40 else None
     except Exception as e:
         log.warning("yfinance 다운로드 오류 [%s]: %s", ticker, e)
@@ -338,22 +340,25 @@ def _fetch_yfinance_batch_fallback() -> list:
         if len(close) < 2:
             return []
 
-        last = close.iloc[-1]
-        prev = close.iloc[-2]
-        chg  = ((last - prev) / prev * 100).dropna().sort_values(ascending=False)
-
+        # Yahoo may append an empty session row. Each ticker can also have
+        # different missing dates, so compare its last two valid closes.
         results = []
-        for sym in chg.head(MAX_TICKERS).index:
-            price_val = float(last[sym]) if sym in last.index else 0
-            chg_val   = float(chg[sym])  if sym in chg.index  else 0
-            if price_val <= 0 or np.isnan(price_val):
+        for sym in close.columns:
+            prices = close[sym].replace([np.inf, -np.inf], np.nan).dropna()
+            if len(prices) < 2:
                 continue
+            price_val, previous = float(prices.iloc[-1]), float(prices.iloc[-2])
+            if price_val <= 0 or previous <= 0:
+                continue
+            chg_val = (price_val - previous) / previous * 100
             results.append({
                 "ticker":        str(sym).strip().upper(),
                 "company":       str(sym),
                 "finviz_price":  round(price_val, 2),
                 "finviz_change": round(chg_val, 2),
             })
+        results.sort(key=lambda row: row["finviz_change"], reverse=True)
+        results = results[:MAX_TICKERS]
         log.info("yfinance batch 폴백: %d 종목", len(results))
         return results
     except Exception as e:
@@ -1248,6 +1253,10 @@ def main(argv=None) -> int:
     if not result or result.get("error") or not result.get("results"):
         log.error("Analysis failed: %s", (result or {}).get("error", "No results"))
         return 1
+    report_dir = pathlib.Path("actions_reports")
+    report_dir.mkdir(exist_ok=True)
+    report_path = report_dir / (datetime.now(KST).strftime(HISTORY_TS_FMT) + ".json")
+    report_path.write_text(json.dumps(result, ensure_ascii=False, indent=2, default=str), encoding="utf-8")
     log.info("Analysis completed with %d results", len(result["results"]))
     return 0
 

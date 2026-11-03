@@ -16,6 +16,9 @@ def get_intraday_indicators(ticker):
     try:
         hist = yf.Ticker(ticker).history(period="1mo", interval="30m", auto_adjust=True, timeout=20)
 
+        if hist is not None:
+            hist = hist.replace([np.inf, -np.inf], np.nan).dropna(subset=['Close', 'High', 'Low', 'Volume'])
+            hist = hist.loc[hist['Close'] > 0]
         if hist is None or len(hist) < 10:
             return None
 

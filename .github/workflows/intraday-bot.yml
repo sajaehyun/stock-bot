@@ -61,7 +61,7 @@ jobs:
         with:
           name: intraday-bot-results
           path: |
-            history/*.json
+            actions_reports/*.json
             intraday_reports/*.json
           retention-days: 7
           if-no-files-found: warn
