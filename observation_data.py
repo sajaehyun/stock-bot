@@ -83,6 +83,27 @@ def write_observation(payload, state, out, run_id, run_attempt, commit):
     return observation
 
 
+def write_data_gap(text, quotes, state, key, at, out, run_id, run_attempt, commit):
+    """Keep a delivered data-gap notice without pretending analysis took place."""
+    from zoneinfo import ZoneInfo
+    decision={'etf':'NOT_APPLICABLE','basis':'not_published','reason':'시세 부족으로 분석 미실행'}
+    snapshot={'results':[],'inputs':{},'quotes':{},'source':'시세 확보 실패 안내',
+              'attempted_quote_observations':copy.deepcopy(quotes),'analysis_performed':False}
+    payload={'session':None,'target':None,'analyzed_at':at.isoformat(),'delivery_key':key,
+             'slot':at.astimezone(ZoneInfo('Asia/Seoul')).strftime('%Y-%m-%d %H:%M'),
+             'text':text,'snapshot':snapshot,'records':[{'decision':decision,'features':{}}]}
+    observation=make_observation(payload,state,run_id,run_attempt,commit)
+    provenance=observation['price_provenance']
+    provenance.update(data_class='no_analysis',classification_reason='시세 부족 안내; 가설 분석·추천을 수행하지 않음')
+    observation.update(data_class='no_analysis',record_kind='자료부족안내')
+    observation['payload']['price_provenance']=copy.deepcopy(provenance)
+    serialized=json.dumps(observation['payload'],ensure_ascii=False,sort_keys=True,separators=(',',':'))
+    observation['payload_sha256']=hashlib.sha256(serialized.encode()).hexdigest()
+    destination=Path(out);destination.parent.mkdir(parents=True,exist_ok=True)
+    destination.write_text(json.dumps(observation,ensure_ascii=False,indent=2),encoding='utf-8')
+    return observation
+
+
 def main():
     p = argparse.ArgumentParser()
     p.add_argument('--report-zip', required=True)

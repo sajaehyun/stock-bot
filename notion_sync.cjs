@@ -6,7 +6,7 @@ function receiptPath(observationId) {
   return 'notion-receipts/'+observationId+'.json';
 }
 function candidatePaths(tree) {
-  return tree.filter(x=>x.type==='blob' && /^(live|fallback|unclassified)\/\d{4}-\d{2}-\d{2}\/\d{4}-\d+-\d+(?:-[a-f0-9]{12})?\.json$/.test(x.path))
+  return tree.filter(x=>x.type==='blob' && /^(live|fallback|unclassified|no_analysis)\/\d{4}-\d{2}-\d{2}\/\d{4}-\d+-\d+(?:-[a-f0-9]{12})?\.json$/.test(x.path))
     .map(x=>x.path).sort();
 }
 async function prepare({github,context,core,includeArchivedMetadata=false}) {

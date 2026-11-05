@@ -5,6 +5,8 @@ const path=require('node:path');
 const {receiptPath,candidatePaths,prepare,persist}=require('./notion_sync.cjs');
 assert.equal(receiptPath('123-1'),'notion-receipts/123-1.json');
 assert.throws(()=>receiptPath('../token'));
+assert.deepEqual(candidatePaths([{type:'blob',path:'no_analysis/2026-11-05/1300-123-1.json'}]),
+ ['no_analysis/2026-11-05/1300-123-1.json']);
 assert.equal(receiptPath('123-1-0123456789ab'),'notion-receipts/123-1-0123456789ab.json');
 assert.deepEqual(candidatePaths([{type:'blob',path:'unclassified/2026-11-03/1100-123-1-0123456789ab.json'}]),
  ['unclassified/2026-11-03/1100-123-1-0123456789ab.json']);

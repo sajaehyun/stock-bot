@@ -6,6 +6,7 @@ const notFound=()=>Object.assign(new Error('missing'),{status:404});
 async function main(){
   assert.equal(archivePath(item),'fallback/2026-11-05/0900-123-1.json');
   assert.equal(archivePath({...item,data_class:'live'}),'live/2026-11-05/0900-123-1.json');
+  assert.equal(archivePath({...item,data_class:'no_analysis'}),'no_analysis/2026-11-05/0900-123-1.json');
   assert.throws(()=>archivePath({...item,data_class:'../live'}));
   assert.throws(()=>archivePath({...item,observation_id:'../123'}));
   let tree,commit,ref;

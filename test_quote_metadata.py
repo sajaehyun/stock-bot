@@ -94,6 +94,21 @@ class PriceTimeTests(unittest.TestCase):
 
 
 class NotionSymbolTableTests(unittest.TestCase):
+    def test_data_gap_notice_is_saved_without_fake_analysis_or_price_times(self):
+        import tempfile
+        from pathlib import Path
+        from observation_data import write_data_gap
+        key='2026-11-05:workflow_dispatch:gap:1300-live-v4:data-gap-v1'
+        with tempfile.TemporaryDirectory(dir=Path.cwd()) as folder:
+            item=write_data_gap('exact gap message',{'NVDA':quote()},
+                {'composition_paper_deliveries':{key:'sent'}},key,datetime.fromisoformat(NOW),
+                Path(folder)/'gap.json','9002','1','commit')
+        page=make_page(item,'source','https://github.com/archive')
+        self.assertEqual(page['properties']['시세구분']['select']['name'],'분석없음')
+        self.assertEqual(page['properties']['분류확도']['select']['name'],'해당없음')
+        self.assertEqual(item['payload']['snapshot']['attempted_quote_observations']['NVDA']['asof_utc'],quote()['asof_utc'])
+        self.assertFalse(item['payload']['snapshot']['analysis_performed'])
+
     def test_full_129_symbol_table_round_trip_and_tamper_detection(self):
         s=snapshot();s['inputs'].update({'S'+str(i):quote() for i in range(125)})
         obs=observation(s);body=make_page(obs,'source','https://github.com/archive')

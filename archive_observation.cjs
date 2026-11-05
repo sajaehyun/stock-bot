@@ -3,7 +3,7 @@ const fs = require('node:fs');
 const BRANCH = 'analysis-data';
 
 function archivePath(item) {
-  if (!['live', 'fallback', 'unclassified'].includes(item.data_class)) throw new Error('Unknown data class');
+  if (!['live', 'fallback', 'unclassified', 'no_analysis'].includes(item.data_class)) throw new Error('Unknown data class');
   if (!/^\d+-\d+(?:-[a-f0-9]{12})?$/.test(item.observation_id)) throw new Error('Invalid origin run');
   const match = /^(\d{4}-\d{2}-\d{2}) (\d{2}):(\d{2})$/.exec(item.slot);
   if (!match) throw new Error('Invalid original slot');
@@ -23,7 +23,8 @@ async function appendObservation({github, repo, observation, core}) {
         const schema = {schema_version: 'composition-observation-v1',
           folders: {live: 'Current-session collection passed the normal freshness requirements',
                     fallback: 'Older quotes or completed closes, explicitly labelled',
-                    unclassified: 'Legacy records without reliable price-mode metadata'},
+                    unclassified: 'Missing or invalid per-symbol price-time evidence',
+                    no_analysis: 'Confirmed data-gap notice; no analysis or recommendation performed'},
           decision_basis: 'Independent of price data class; fallback_unvalidated is an auxiliary decision, not older prices',
           run_kind: 'scheduled, manual or diagnostic; use delivery_key and target to deduplicate evaluations',
           retention: 'Git history on this data-only branch; no Actions artifact expiry',

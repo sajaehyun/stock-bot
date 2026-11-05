@@ -16,7 +16,7 @@ from zoneinfo import ZoneInfo
 
 VERSION = '2026-03-11'
 KST = ZoneInfo('Asia/Seoul')
-CLASSES = {'live': '실시간', 'fallback': '대체', 'unclassified': '미분류'}
+CLASSES = {'live': '실시간', 'fallback': '대체', 'unclassified': '미분류', 'no_analysis':'분석없음'}
 
 
 def schema():
@@ -164,6 +164,9 @@ def make_page(observation, data_source_id, archive_url):
     properties['시세기록 종목']={'number':len(provenance['symbols']) if provenance.get('symbols') else None}
     if provenance.get('schema_version')=='price-provenance-v2':
         properties['분류확도']={'select':{'name':'일부 시각 미확인' if counts.get('unclassified') else '종목별 시각 확인'}}
+        properties['분류근거']={'rich_text':rich(provenance['classification_reason'])}
+    if kind=='no_analysis':
+        properties['분류확도']={'select':{'name':'해당없음'}}
         properties['분류근거']={'rich_text':rich(provenance['classification_reason'])}
     children = [block('heading_2', '텔레그램 발송 원문' if payload.get('text') else '원문 보관 상태')]
     if not payload.get('text'):
