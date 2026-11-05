@@ -1,0 +1,12 @@
+{
+  "schema_version": "composition-observation-v1",
+  "folders": {
+    "live": "Current-session collection passed the normal freshness requirements",
+    "fallback": "Older quotes or completed closes, explicitly labelled",
+    "unclassified": "Legacy records without reliable price-mode metadata"
+  },
+  "decision_basis": "Independent of price data class; fallback_unvalidated is an auxiliary decision, not older prices",
+  "run_kind": "scheduled, manual or diagnostic; use delivery_key and target to deduplicate evaluations",
+  "retention": "Git history on this data-only branch; no Actions artifact expiry",
+  "privacy": "Same private repository; no credentials in observations"
+}
