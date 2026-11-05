@@ -1,0 +1,42 @@
+name: Mirror delivered stock scans to personal Notion
+on:
+  workflow_run:
+    workflows: ['Daily Stock Analysis','Hourly Stock Analysis','Intraday 30min Analysis']
+    types: [completed]
+  workflow_dispatch:
+permissions:
+  contents: write
+concurrency:
+  group: personal-notion-stock-mirror
+  cancel-in-progress: false
+jobs:
+  sync:
+    if: github.event_name != 'workflow_run' || github.event.workflow_run.head_repository.full_name == github.repository
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    env:
+      NOTION_DATABASE_ID: ${{ vars.NOTION_DATABASE_ID }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - name: Test price times, immutable messages, and delivery deduplication
+        run: |
+          python -m unittest -q test_quote_metadata.py test_notion_archive.py
+          node test_notion_sync.cjs
+      - name: Queue confirmed scanner originals
+        uses: actions/github-script@v7
+        with:
+          script: await require('./notion_sync.cjs').prepare({github,context,core});
+      - name: Save and read back per-symbol prices and timestamps
+        env:
+          NOTION_TOKEN: ${{ secrets.NOTION_TOKEN }}
+        run: python notion_archive.py --initialize
+      - name: Preserve verified mirror receipts
+        if: always()
+        uses: actions/github-script@v7
+        with:
+          script: await require('./notion_sync.cjs').persist({github,context,core});

@@ -14,7 +14,7 @@ on:
     - cron: '0 14 * * *'  # 오후 11시 KST
   workflow_dispatch:
 permissions:
-  contents: read
+  contents: write
 
 concurrency:
   group: ${{ github.workflow }}-${{ github.ref }}
@@ -41,15 +41,30 @@ jobs:
       - name: Install dependencies
         run: python -m pip install -r requirements.txt
       - name: Verify scanner regression tests
-        run: python -m unittest discover -s tests -v
+        run: |
+          python -m unittest discover -s tests -v
+          python -m unittest -q test_quote_metadata.py test_notion_archive.py
       - name: Run stock analysis
-        run: python bot.py
+        run: python tracked_scanner.py daily
+      - name: Archive confirmed per-symbol price observations
+        if: always()
+        uses: actions/github-script@v7
+        with:
+          script: |
+            const fs=require('node:fs');
+            if(fs.existsSync('delivered_observations')) {
+              for(const file of fs.readdirSync('delivered_observations').filter(f=>f.endsWith('.json'))) {
+                const observation=JSON.parse(fs.readFileSync('delivered_observations/'+file,'utf8'));
+                await require('./archive_observation.cjs').appendObservation({github,repo:context.repo,observation,core});
+              }
+            }
       - name: Save analysis results
         if: always()
         uses: actions/upload-artifact@v4
         with:
           name: daily-bot-results
           path: |
+            delivered_observations/*.json
             actions_reports/*.json
             intraday_reports/*.json
           retention-days: 7
