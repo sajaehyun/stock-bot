@@ -16,9 +16,11 @@ from quote_metadata import provenance, summary
 from scanner_observation import candle_fact, scanner_snapshot, write_scanner_observation
 
 
-def run(kind):
+def run(kind,context=None):
     import bot
     import intraday_bot
+    from market_context import collect,summary as context_summary
+    if context is None:context=collect(bot.yf,datetime.now(timezone.utc))
     quotes={}; candidates={}; messages=[]; analyzed_at=None
     original_sender=bot.send_telegram
 
@@ -26,11 +28,12 @@ def run(kind):
         nonlocal analyzed_at
         if analyzed_at is None:
             analyzed_at=datetime.now(timezone.utc).isoformat()
-            snap=scanner_snapshot({'results':[]},quotes)
+            snap=scanner_snapshot({'results':[],'market_context':context},quotes)
             message=escape(summary(provenance(snap,analyzed_at)))+'\n\n'+message
             from split_adjustment import summary as adjustment_summary
             adjustment_text=adjustment_summary(snap)
             if adjustment_text:message=escape(adjustment_text)+'\n'+message
+            message=escape(context_summary(context))+'\n'+message
         confirmed=original_sender(message)
         if confirmed is not True:raise RuntimeError('Telegram send was not confirmed; observation not archived')
         messages.append(unescape(re.sub(r'</?b>','',message)))
@@ -81,6 +84,7 @@ def run(kind):
             raise RuntimeError('No complete confirmed scanner delivery to archive')
         # Save every used input, including scanned symbols outside the TOP10.
         report['price_inputs']=quotes
+        report['market_context']=context
         report['quote_metadata_version']=2
         report['telegram_messages']=messages
         report_dir=Path('intraday_reports' if kind=='intraday' else 'actions_reports')

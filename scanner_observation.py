@@ -52,6 +52,7 @@ def scanner_snapshot(report,quotes):
                    price_collected_at_utc=q.get('collected_at_utc'))
         rows.append(row)
     return {'quote_metadata_version':2,'results':rows,'inputs':copy.deepcopy(quotes),'quotes':{},
+            **({'market_context':copy.deepcopy(report['market_context'])} if report.get('market_context') else {}),
             'required_symbols':sorted(set(quotes)|{r['ticker'] for r in rows}),
             'source':'분석에 실제 사용한 원본 OHLCV','price_mode':'scanner_candles',
             'coverage':{'available':len(quotes),'requested':report.get('requested_total',report.get('total',len(quotes)))}}

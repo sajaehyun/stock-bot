@@ -28,7 +28,7 @@ class ConfirmedScannerTests(unittest.TestCase):
     def test_exact_prices_scores_message_and_symbol_metadata_survive_delivery(self):
         with patch.object(bot,'fetch_ohlcv',return_value=self.frame),patch.object(bot,'format_mode1',side_effect=self.scan),\
              patch.object(bot,'send_telegram',return_value=True),patch.dict(os.environ,{'GITHUB_RUN_ID':'990001','GITHUB_REPOSITORY':'sajaehyun/stock-bot'}):
-            result=tracked_scanner.run('daily')
+            result=tracked_scanner.run('daily',{})
         self.assertEqual(result['delivery_status'],'sent')
         self.assertEqual(result['data_class'],'fallback')
         self.assertEqual(result['price_provenance']['symbols']['NVDA']['timestamp_kind'],'official_session_close')
@@ -39,7 +39,7 @@ class ConfirmedScannerTests(unittest.TestCase):
     def test_failed_send_cannot_create_a_confirmed_observation(self):
         with patch.object(bot,'fetch_ohlcv',return_value=self.frame),patch.object(bot,'format_mode1',side_effect=self.scan),\
              patch.object(bot,'send_telegram',side_effect=RuntimeError('delivery failed')):
-            with self.assertRaises(RuntimeError):tracked_scanner.run('daily')
+            with self.assertRaises(RuntimeError):tracked_scanner.run('daily',{})
         self.assertFalse(Path('delivered_observations').exists())
 
 

@@ -49,6 +49,10 @@ def make_observation(payload, state, run_id, run_attempt, commit):
     payload = copy.deepcopy(payload)
     provenance = price_provenance(payload['snapshot'], payload['analyzed_at'])
     payload['price_provenance'] = provenance
+    context=payload['snapshot'].get('market_context')
+    if context:
+        from market_context import eligibility
+        payload['research_eligibility']=eligibility(context)
     key = payload['delivery_key']
     parts = key.split(':')
     slot = payload.get('slot')
@@ -72,7 +76,8 @@ def make_observation(payload, state, run_id, run_attempt, commit):
             'delivery_key': key,
             'delivery_status': state.get('composition_paper_deliveries', {}).get(key, 'unknown'),
             'price_provenance': provenance,
-            'payload_sha256': hashlib.sha256(serialized.encode()).hexdigest(), 'payload': payload}
+            'payload_sha256': hashlib.sha256(serialized.encode()).hexdigest(), 'payload': payload,
+            **({'research_eligibility':payload['research_eligibility']} if context else {})}
 
 
 def write_observation(payload, state, out, run_id, run_attempt, commit):

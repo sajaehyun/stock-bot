@@ -22,7 +22,7 @@ CLASSES = {'live': '실시간', 'fallback': '대체', 'unclassified': '미분류
 def schema():
     properties = {'이름': {'title': {}}}
     for name in ('회차', '분석시각', '최초시세', '최종시세', '기준거래일', '대상거래일', '발송시각',
-                 '시세시각상한', '재분류기준일', '분류검토일', '분할보정기준일'):
+                 '시세시각상한', '재분류기준일', '분류검토일', '분할보정기준일', '뉴스확인시각'):
         properties[name] = {'date': {}}
     for name in ('추천', '관망', '비추', 'TOP10 반도체', '반도체 추천', '반도체 비추',
                  'SOXX 가격', 'SOXL 가격', 'SOXS 가격', '조회 종목 수', '요청 종목 수', '원본참조수',
@@ -30,7 +30,8 @@ def schema():
                  'SOXX 20일 평균', 'SOXL 20일 평균', 'SOXS 20일 평균'):
         properties[name] = {'number': {'format': 'number'}}
     for name in ('시세유형', '시세출처', '판정근거', '대체사유', '발송키', '원본해시', '시간근거', '복원근거',
-                 '분류근거', '분류검토ID', '시세기록버전', '분할보정버전', '가격보정근거'):
+                 '분류근거', '분류검토ID', '시세기록버전', '분할보정버전', '가격보정근거',
+                 '검증제외사유', '뉴스점검버전'):
         properties[name] = {'rich_text': {}}
     for name in ('원본 데이터', '실행 기록', '분류근거링크'):
         properties[name] = {'url': {}}
@@ -46,6 +47,7 @@ def schema():
         '기록종류': [('가설분석', 'blue'), ('종목추천', 'green'), ('장중스캔', 'purple'),
                      ('구형분석', 'gray'), ('자료부족안내', 'orange')],
         '원문상태': [('원문보존', 'green'), ('원문미보관', 'gray')],
+        '검증사용여부': [('사용가능', 'green'), ('제외', 'orange'), ('미확인', 'gray')],
     }.items():
         properties[name] = {'select': {'options': [{'name': n, 'color': c} for n, c in options]}}
     return properties
@@ -125,6 +127,10 @@ def make_page(observation, data_source_id, archive_url):
     features = payload['records'][0].get('features', {}) if payload.get('records') else {}
     history = observation.get('historical_import', {})
     snapshot = payload['snapshot']
+    from market_context import eligibility
+    context=snapshot.get('market_context')
+    research=observation.get('research_eligibility') or eligibility(context)
+    research_label='사용가능' if research['eligible'] else '미확인' if research['status']=='unknown' else '제외'
     label = CLASSES[kind]
     etf = decision.get('etf')
     etf = etf if etf in ('SOXL', 'SOXS') else '미발표' if etf == 'NOT_APPLICABLE' else '보류'
@@ -150,6 +156,10 @@ def make_page(observation, data_source_id, archive_url):
                   '분할보정버전': {'rich_text': rich(provenance.get('price_adjustment_version'))},
                   '분할보정기준일': {'date': None},
                   '가격보정근거': {'rich_text': []},
+                  '검증사용여부': {'select': {'name': research_label}},
+                  '검증제외사유': {'rich_text': rich('' if research['eligible'] else research['reason'])},
+                  '뉴스점검버전': {'rich_text': rich((context or {}).get('version'))},
+                  '뉴스확인시각': {'date': {'start': context['checked_at_utc']} if context and context.get('checked_at_utc') else None},
                   '실행종류': {'select': {'name': {'scheduled': '예약', 'manual': '수동',
                                                 'diagnostic': '진단'}[observation['run_kind']]}},
                   '원본 데이터': {'url': archive_url},
@@ -208,6 +218,9 @@ def make_page(observation, data_source_id, archive_url):
     if provenance.get('price_adjustment_version'):
         children += [block('heading_2','분할 보정 가격과 20일 평균'),
                      block('paragraph',json.dumps(snapshot.get('core_price_metrics',{}),ensure_ascii=False,indent=2))]
+    if context:
+        children += [block('heading_2','불확실성 점검 · 가설 검증 표본 사용 여부')]
+        children += paragraphs(json.dumps({'eligibility':research,'market_context':context},ensure_ascii=False,indent=2))
     model_records = [r for r in payload['records'] if r.get('model_version') or r.get('model_name')]
     if model_records:
         children.append(block('heading_2', '가설별 당시 판정'))
@@ -290,6 +303,17 @@ def verify_price_metrics(api,page_id,observation):
                 raise ValueError('Notion normalized price/MA20 read-back differs: '+symbol)
         verified[symbol]={k:quote.get(k) for k in ('price','ma20','raw_price','price_basis')}
     return verified
+
+
+def verify_context(api,page_id,observation):
+    e=observation.get('research_eligibility')
+    if not e:return None
+    p=api.call('GET','/pages/'+page_id)['properties']
+    expected='사용가능' if e['eligible'] else '미확인' if e['status']=='unknown' else '제외'
+    reason=''.join(v.get('plain_text',v.get('text',{}).get('content','')) for v in p['검증제외사유']['rich_text'])
+    if p['검증사용여부']['select']['name']!=expected or reason!=('' if e['eligible'] else e['reason']):
+        raise ValueError('Notion research-exclusion read-back differs')
+    return e
 
 
 class Notion:
@@ -382,9 +406,11 @@ def mirror(api, data_source_id, observation, archive_url):
         page = api.call('POST', '/pages', make_page(observation, data_source_id, archive_url))
     verified=verify_symbol_rows(api,page['id'],observation['price_provenance'])
     price_metrics=verify_price_metrics(api,page['id'],observation)
+    context_verified=verify_context(api,page['id'],observation)
     return {'page_id': page['id'], 'page_url': page['url'], 'symbol_rows_verified':verified,
             'price_metrics_verified':price_metrics,
             'split_adjustment_version':observation['price_provenance'].get('price_adjustment_version'),
+            'research_eligibility_verified':context_verified,
             'delivery_key': observation['delivery_key'], 'payload_sha256': observation['payload_sha256'],
             'observation_id': observation['observation_id'], 'data_class': observation['data_class']}
 
