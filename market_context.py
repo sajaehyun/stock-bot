@@ -97,8 +97,22 @@ def eligibility(context):
             'reason':context.get('reason','당시 뉴스·사건 근거 미확인; 검증 표본에서 제외')}
 
 
-def summary(context):
+def new_events(context,seen_urls=()):
+    return [event for event in (context or {}).get('events',[]) if event['url'] not in set(seen_urls)]
+
+
+def summary(context,seen_urls=(),news_limit=2):
     e=eligibility(context)
     prefix='뉴스 점검: 제외 사유 미검출 (탐지 범위 한정)' if e['eligible'] else '⚠️ 가설 검증 제외: '+('불확실성 감지' if e['status']=='uncertain' else '뉴스 확인 불가')
     events=(context or {}).get('events',[])
-    return prefix+'\n'+(events[0]['category']+': '+events[0]['detail'][:110] if events else e['reason'])
+    lines=[prefix,e['reason']]
+    articles={a['url']:a for a in (context or {}).get('articles',[])}
+    unseen=new_events(context,seen_urls)
+    for event in unseen[:news_limit]:
+        published=stamp(articles.get(event['url'],{}).get('published_at_utc'))
+        when=published.astimezone(ZoneInfo('Asia/Seoul')).strftime('%m/%d %H:%M KST') if published else '보도 시각 미제공'
+        lines += ['📰 '+event['category']+' · '+when,event['detail'][:160],
+                  event['url'] if len(event['url'])<=500 else '원문 링크는 Notion 근거에 저장']
+    if events and not unseen:lines.append('이전 기사와 동일 · 새 불확실성 기사 없음')
+    elif events and news_limit==0:lines.append('관련 기사 원문·시각은 Notion 근거에 보관')
+    return '\n'.join(lines)

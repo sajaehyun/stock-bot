@@ -78,6 +78,20 @@ def normalize_daily(symbol, daily, yf, now=None, raw_quote=None, hourly=None):
         # Compare split-only Close with hourly Close before applying dividends.
         # Hourly data does not contain the cumulative daily dividend adjustment.
         if 'Adj Close' in frame:
+            valid=frame.Close.dropna()
+            if not valid.empty:
+                terminal=valid.index[-1]
+                if pd.isna(frame.loc[terminal,'Adj Close']):
+                    # A terminal price has no subsequent cash distributions.
+                    # Yahoo sometimes publishes Close before its terminal Adj Close.
+                    # Use that observed Close, never a fabricated or prior price.
+                    frame.loc[terminal,'Adj Close']=frame.loc[terminal,'Close']
+                    audit['terminal_adj_close_from_observed_close']={'date':date_of(terminal),
+                        'close':float(frame.loc[terminal,'Close']),
+                        'reason':'terminal session has no subsequent dividend adjustment'}
+                window=frame.loc[valid.index[-20:]]
+                if window['Adj Close'].isna().any():
+                    raise SplitBasisUnavailable('Historical dividend adjustment missing within MA20 for '+symbol)
             dividend_factor=frame['Adj Close']/frame['Close']
             for column in ('Open','High','Low','Close'):
                 frame[column]=frame[column]*dividend_factor

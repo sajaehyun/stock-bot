@@ -33,7 +33,7 @@ def run(kind,context=None):
             from split_adjustment import summary as adjustment_summary
             adjustment_text=adjustment_summary(snap)
             if adjustment_text:message=escape(adjustment_text)+'\n'+message
-            message=escape(context_summary(context))+'\n'+message
+            message=escape(context_summary(context,news_limit=0))+'\n'+message
         confirmed=original_sender(message)
         if confirmed is not True:raise RuntimeError('Telegram send was not confirmed; observation not archived')
         messages.append(unescape(re.sub(r'</?b>','',message)))

@@ -26,6 +26,11 @@ class ContextTests(unittest.TestCase):
         self.assertEqual(context['status'],'uncertain');self.assertFalse(context['research_eligible'])
         self.assertEqual(len(context['articles']),3)
         self.assertIn('선거',context['events'][0]['category'])
+        text=summary(context)
+        self.assertIn('KST',text);self.assertIn(context['events'][0]['url'],text)
+        repeated=summary(context,[context['events'][0]['url']])
+        self.assertIn('새 불확실성 기사 없음',repeated)
+        self.assertNotIn(context['events'][0]['url'],repeated)
 
     def test_news_failure_is_unknown_and_never_assumed_calm(self):
         context=self.evaluate({},failures=['US stock market 조회 실패'])
