@@ -387,6 +387,33 @@ def mirror(api, data_source_id, observation, archive_url):
         original_hash = ''.join(x.get('plain_text', x.get('text', {}).get('content', ''))
                                for x in page['properties']['원본해시']['rich_text'])
         if original_hash != observation['payload_sha256']:
+            snapshot=observation['payload']['snapshot']
+            label=lambda name:(page['properties'].get(name,{}).get('select') or {}).get('name')
+            if (observation['data_class']=='no_analysis' and snapshot.get('analysis_performed') is False
+                and not any(snapshot.get(k) for k in ('results','inputs','quotes'))
+                and observation['decision'].get('etf')=='NOT_APPLICABLE'
+                and observation['delivery_key'].endswith(':data-gap-v1')
+                and label('시세구분')=='분석없음' and label('기록종류')=='자료부족안내'):
+                # Same logical missing-data notice, actually sent twice after an
+                # older state restore. Keep both raw notices; never add a second
+                # database row or replace the canonical original hash/message.
+                marker='중복 자료부족 안내 '+observation['observation_id']
+                detail=marker+'\n'+observation['payload']['text']+'\n원본 '+archive_url+'\nSHA256 '+observation['payload_sha256']
+                def stored_text():
+                    texts=[];cursor=None
+                    while True:
+                        result=api.call('GET','/blocks/'+page['id']+'/children?page_size=100'+('&start_cursor='+cursor if cursor else ''))
+                        texts += [''.join(v.get('plain_text',v.get('text',{}).get('content','')) for v in b.get('paragraph',{}).get('rich_text',[])) for b in result['results']]
+                        if not result.get('has_more'):return ''.join(texts)
+                        cursor=result['next_cursor']
+                before=stored_text()
+                if marker not in before:api.call('PATCH','/blocks/'+page['id']+'/children',{'children':paragraphs(detail)})
+                if detail not in stored_text():raise ValueError('Duplicate notice evidence read-back incomplete')
+                return {'page_id':page['id'],'page_url':page['url'],'symbol_rows_verified':0,
+                    'delivery_key':observation['delivery_key'],'payload_sha256':observation['payload_sha256'],
+                    'observation_id':observation['observation_id'],'data_class':'no_analysis',
+                    'duplicate_notice':True,'canonical_payload_sha256':original_hash,
+                    'canonical_original_preserved':True}
             raise ValueError('Existing delivery key has different immutable source data')
         # Newly added provenance columns may be empty on a previously saved row.
         # Fill only empty metadata after matching the immutable original hash.
