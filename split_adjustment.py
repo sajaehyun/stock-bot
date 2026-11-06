@@ -58,10 +58,48 @@ def quote_price(price, asof, adjustment):
     return float(price)/factor, factor
 
 
+def recover_regular_bar(daily,raw,now):
+    """Fill a missing session only from the provider's dated, observed OHLCV."""
+    import pandas as pd
+    if not raw:return daily
+    try:
+        observed=datetime.fromtimestamp(float(raw['regularMarketTime']),timezone.utc)
+        if observed>now:return daily
+        day=observed.astimezone(NY).date().isoformat()
+        values={column:float(raw[key]) for column,key in {
+            'Open':'regularMarketOpen','High':'regularMarketDayHigh','Low':'regularMarketDayLow',
+            'Close':'regularMarketPrice','Volume':'regularMarketVolume'}.items()}
+        if any(not math.isfinite(v) for v in values.values()):return daily
+        if min(values[k] for k in ('Open','High','Low','Close'))<=0 or values['Volume']<0:return daily
+        if values['High']<max(values['Open'],values['Close']) or values['Low']>min(values['Open'],values['Close']):return daily
+    except (KeyError,ValueError,TypeError,OverflowError):return daily
+    valid=daily.dropna(subset=['Open','High','Low','Close','Volume'])
+    if not valid.empty and str(pd.Timestamp(valid.index[-1]).date())>=day:return daily
+    index=pd.Timestamp(day)
+    if daily.index.tz is not None:index=index.tz_localize(daily.index.tz)
+    frame=daily.copy()
+    for column,value in values.items():frame.loc[index,column]=value
+    if 'Adj Close' in frame:frame.loc[index,'Adj Close']=values['Close']
+    # Keep existing split-event entries, including those on an empty OHLCV row.
+    frame=frame.sort_index()
+    frame.attrs['daily_retrieval']={'source':'Yahoo dated regular-market quote OHLCV',
+        'reason':'Missing daily session recovered from observed provider fields; no synthetic OHLCV',
+        'session':day,'provider_trade_utc':observed.isoformat(),'collected_at_utc':now.isoformat(),
+        'raw_ohlcv':values}
+    return frame
+
+
 def normalize_daily(symbol, daily, yf, now=None, raw_quote=None, hourly=None):
     """Accept Yahoo auto_adjust=False bars, repair splits, then retain dividend adjustment."""
     import pandas as pd
     now = now or datetime.now(timezone.utc)
+    if raw_quote is None and not daily.empty and daily[['Open','High','Low','Close','Volume']].iloc[-1].isna().any():
+        try:
+            response=yf.Ticker(symbol)._data.get_raw_json('https://query1.finance.yahoo.com/v7/finance/quote',
+                params={'symbols':symbol,'formatted':'false','fields':'symbol,regularMarketPrice,regularMarketTime,regularMarketOpen,regularMarketDayHigh,regularMarketDayLow,regularMarketVolume'},timeout=10)
+            raw_quote=next(q for q in response['quoteResponse']['result'] if q['symbol']==symbol)
+        except Exception:raw_quote=None
+    daily=recover_regular_bar(daily,raw_quote,now)
     basis_date = date_of(now)
     old = daily.attrs.get('price_adjustment', {})
     if old.get('version') == VERSION and old.get('basis_date') == basis_date:
