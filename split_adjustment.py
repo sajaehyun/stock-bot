@@ -74,6 +74,7 @@ def normalize_daily(symbol, daily, yf, now=None, raw_quote=None, hourly=None):
     audit = {'version':VERSION, 'basis_date':basis_date, 'events':events,
              'status':'no_confirmed_splits', 'adjusted_rows':0,
              'verified_daily_rows':0, 'unverified_historical_dates':[], 'corrections':[]}
+    if daily.attrs.get('daily_retrieval'):audit['daily_retrieval']=deepcopy(daily.attrs['daily_retrieval'])
     def finish():
         # Compare split-only Close with hourly Close before applying dividends.
         # Hourly data does not contain the cumulative daily dividend adjustment.
