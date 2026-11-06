@@ -62,6 +62,29 @@ class ContextTests(unittest.TestCase):
     def test_unknown_old_observations_are_not_eligible_by_default(self):
         self.assertFalse(eligibility(None)['eligible'])
 
+    def test_prior_session_bullish_article_is_background_not_the_current_market_headline(self):
+        data=batches('US stock market rises after election results')
+        data['US stock market'][0]['providerPublishTime']=(NOW-timedelta(hours=34)).timestamp()
+        data['semiconductor'].append({'title':'Nasdaq falls 5.5% as chip stocks tumble',
+            'link':'https://example.org/current-close','providerPublishTime':(NOW-timedelta(hours=1)).timestamp()})
+        market={'session':'2026-11-05','phase':'최근 정규장 종료','news_cutoff_utc':'2026-11-05T21:00:00+00:00',
+                'quotes':{'^GSPC':{'name':'S&P 500','change_pct':-4.36},'^IXIC':{'name':'나스닥','change_pct':-5.52}}}
+        context=evaluate(NOW,data,{'features':[]},market_snapshot=market)
+        text=summary(context)
+        self.assertIn('S&P 500 -4.36%',text);self.assertIn('나스닥 -5.52%',text)
+        self.assertIn('Nasdaq falls 5.5%',text)
+        self.assertNotIn('rises after election results',text)
+        self.assertFalse(context['research_eligible'])
+
+    def test_current_futures_rebound_is_labelled_separately_from_the_cash_session(self):
+        data=batches('Election outcome raises policy questions')
+        data['semiconductor'].append({'title':'Stock futures rise after Wall Street selloff',
+            'link':'https://example.org/futures','providerPublishTime':(NOW-timedelta(minutes=10)).timestamp()})
+        context=self.evaluate(data)
+        text=summary(context)
+        self.assertIn('Stock futures rise',text)
+        self.assertIn('선물·장외 보도 (정규장과 구분)',text)
+
     def test_exclusion_is_hash_bound_and_read_back_from_notion(self):
         s=snapshot();s['market_context']=self.evaluate(batches('Hurricane disrupts production'))
         o=observation(s);original_hash=o['payload_sha256']
