@@ -1,5 +1,6 @@
 """Price-time facts for new deliveries; HTTP time is never a trade timestamp."""
 from collections import Counter
+from copy import deepcopy
 from datetime import datetime, timezone
 import math
 
@@ -57,7 +58,10 @@ def symbol_fact(symbol, quote, at, phase, phase_start, max_age_minutes=20):
             'provider_bar_index':quote.get('provider_bar_index'),'interval':quote.get('interval'),
             'session':quote.get('session'),'source':quote.get('source'),
             'age_minutes':age,'data_class':classification,'reason':reason,
-            'input_sha256':quote.get('input_sha256')}
+            'input_sha256':quote.get('input_sha256'),
+            **({k:deepcopy(quote.get(k)) for k in ('ma20','raw_price','quote_split_factor',
+                 'reference_price','raw_reference_price','price_basis','price_adjustment')}
+               if quote.get('price_adjustment') else {})}
 
 
 def provenance(snapshot, analyzed_at):
@@ -90,7 +94,7 @@ def provenance(snapshot, analyzed_at):
             '일부 종목 시세 시각 또는 가격 검증 불가' if kind=='unclassified' else '모든 분석 입력의 현재 세션 실제 체결 시각·신선도 확인')
     stamps=[timestamp(f['asof_utc']) for f in symbols.values() if f['asof_utc'] and
             timestamp(f['asof_utc'])<=at]
-    return {'schema_version':'price-provenance-v2','symbol_schema_version':VERSION,
+    result={'schema_version':'price-provenance-v2','symbol_schema_version':VERSION,
             'data_class':kind,'price_mode':snapshot.get('price_mode'),'source':snapshot.get('source'),
             'fallback':fallback,'basis_session':(fallback or {}).get('basis_session',snapshot.get('session')),
             'analyzed_at':at.isoformat(),'freshness_limit_minutes':20,'expected_session':phase,
@@ -101,6 +105,9 @@ def provenance(snapshot, analyzed_at):
             'oldest_asof_utc':min(stamps).isoformat() if stamps else None,
             'latest_asof_utc':max(stamps).isoformat() if stamps else None,
             'core_etfs':{s:symbols[s] for s in CORE if s in symbols},'coverage':snapshot.get('coverage')}
+    if any(f.get('price_adjustment') for f in symbols.values()):
+        result['price_adjustment_version']='split-basis-v1'
+    return result
 
 
 def summary(provenance):

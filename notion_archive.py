@@ -22,14 +22,15 @@ CLASSES = {'live': '실시간', 'fallback': '대체', 'unclassified': '미분류
 def schema():
     properties = {'이름': {'title': {}}}
     for name in ('회차', '분석시각', '최초시세', '최종시세', '기준거래일', '대상거래일', '발송시각',
-                 '시세시각상한', '재분류기준일', '분류검토일'):
+                 '시세시각상한', '재분류기준일', '분류검토일', '분할보정기준일'):
         properties[name] = {'date': {}}
     for name in ('추천', '관망', '비추', 'TOP10 반도체', '반도체 추천', '반도체 비추',
                  'SOXX 가격', 'SOXL 가격', 'SOXS 가격', '조회 종목 수', '요청 종목 수', '원본참조수',
-                 '실시간 종목', '대체 종목', '시각 미확인 종목', '시세기록 종목'):
+                 '실시간 종목', '대체 종목', '시각 미확인 종목', '시세기록 종목',
+                 'SOXX 20일 평균', 'SOXL 20일 평균', 'SOXS 20일 평균'):
         properties[name] = {'number': {'format': 'number'}}
     for name in ('시세유형', '시세출처', '판정근거', '대체사유', '발송키', '원본해시', '시간근거', '복원근거',
-                 '분류근거', '분류검토ID', '시세기록버전'):
+                 '분류근거', '분류검토ID', '시세기록버전', '분할보정버전', '가격보정근거'):
         properties[name] = {'rich_text': {}}
     for name in ('원본 데이터', '실행 기록', '분류근거링크'):
         properties[name] = {'url': {}}
@@ -70,9 +71,20 @@ def block(kind, text):
     return {'object': 'block', 'type': kind, kind: {'rich_text': rich(text)}}
 
 
+def paragraphs(text):
+    fragments=rich(text)
+    return [{'object':'block','type':'paragraph','paragraph':{'rich_text':fragments[i:i+80]}}
+            for i in range(0,len(fragments),80)]
+
+
 SYMBOL_HEADERS = ['종목','분석 입력가','시세 기준 (KST)','시각 종류','수집 (KST)',
                   '세션','시세 구분','경과 분','출처','근거']
 SYMBOL_HEADING = '종목별 분석 입력 시세 · 실제 체결/봉/공식 종가 시각 구분'
+
+
+def symbol_headers(provenance):
+    return SYMBOL_HEADERS+(['20일 평균','제공처 원가격','가격 보정 기준일','분할 보정 근거']
+        if provenance.get('price_adjustment_version') else [])
 
 
 def symbol_rows(provenance):
@@ -85,11 +97,19 @@ def symbol_rows(provenance):
     rows=[]
     for symbol,fact in sorted(provenance.get('symbols',{}).items()):
         age=fact.get('age_minutes')
-        rows.append([symbol,str(fact.get('price') if fact.get('price') is not None else '미확인'),
+        cells=[symbol,str(fact.get('price') if fact.get('price') is not None else '미확인'),
             local(fact.get('asof_utc')),kinds.get(fact.get('timestamp_kind'),'미확인'),
             local(fact.get('collected_at_utc')),str(fact.get('session') or '미확인'),
             CLASSES[fact['data_class']],f'{age:.2f}' if age is not None else '미확인',
-            str(fact.get('source') or '미확인'),fact['reason']])
+            str(fact.get('source') or '미확인'),fact['reason']]
+        if provenance.get('price_adjustment_version'):
+            adjustment=fact.get('price_adjustment',{})
+            cells += [str(fact['ma20']) if fact.get('ma20') is not None else '미확인',
+                str(fact['raw_price']) if fact.get('raw_price') is not None else '미확인',
+                str(fact.get('price_basis') or '미확인'),
+                json.dumps({k:adjustment[k] for k in ('version','status','adjusted_rows','events')
+                    if k in adjustment},ensure_ascii=False,separators=(',',':'))]
+        rows.append(cells)
     return rows
 
 
@@ -127,6 +147,9 @@ def make_page(observation, data_source_id, archive_url):
                   '시세시각상한': {'date': None}, '재분류기준일': {'date': None},
                   '분류검토일': {'date': None},
                   '시세기록버전': {'rich_text': rich(provenance.get('symbol_schema_version'))},
+                  '분할보정버전': {'rich_text': rich(provenance.get('price_adjustment_version'))},
+                  '분할보정기준일': {'date': None},
+                  '가격보정근거': {'rich_text': []},
                   '실행종류': {'select': {'name': {'scheduled': '예약', 'manual': '수동',
                                                 'diagnostic': '진단'}[observation['run_kind']]}},
                   '원본 데이터': {'url': archive_url},
@@ -156,6 +179,12 @@ def make_page(observation, data_source_id, archive_url):
         properties[name] = {'number': features.get(key)}
     for symbol in ('SOXX', 'SOXL', 'SOXS'):
         properties[symbol+' 가격'] = {'number': provenance.get('core_etfs', {}).get(symbol, {}).get('price')}
+        properties[symbol+' 20일 평균'] = {'number': provenance.get('core_etfs', {}).get(symbol, {}).get('ma20')}
+    if provenance.get('price_adjustment_version'):
+        bases={f.get('price_basis') for f in provenance['symbols'].values() if f.get('price_basis')}
+        if len(bases)!=1:raise ValueError('Mixed or missing share-count basis dates')
+        properties['분할보정기준일']={'date':{'start':next(iter(bases))}}
+        properties['가격보정근거']={'rich_text':rich('가격·20일 평균은 같은 주식 수 기준; 원가격·분할 이벤트·보정 일봉은 원본에 보관')}
     for name, key in [('조회 종목 수', 'available'), ('요청 종목 수', 'requested')]:
         properties[name] = {'number': (provenance.get('coverage') or {}).get(key)}
     counts=provenance.get('symbol_counts',{})
@@ -174,8 +203,11 @@ def make_page(observation, data_source_id, archive_url):
     # Keep the exact original text; it may contain newlines and long reports.
     for fragment in rich(payload['text']):
         children.append(block('paragraph', fragment['text']['content']))
-    children += [block('heading_2', '시세 출처와 기준 시각'),
-                 block('paragraph', json.dumps(provenance, ensure_ascii=False, indent=2))]
+    children += [block('heading_2', '시세 출처와 기준 시각')]
+    children += paragraphs(json.dumps(provenance, ensure_ascii=False, indent=2))
+    if provenance.get('price_adjustment_version'):
+        children += [block('heading_2','분할 보정 가격과 20일 평균'),
+                     block('paragraph',json.dumps(snapshot.get('core_price_metrics',{}),ensure_ascii=False,indent=2))]
     model_records = [r for r in payload['records'] if r.get('model_version') or r.get('model_name')]
     if model_records:
         children.append(block('heading_2', '가설별 당시 판정'))
@@ -209,9 +241,9 @@ def make_page(observation, data_source_id, archive_url):
                            '시각 미확인 종목 수를 별도로 표시하며, 수집 시각을 체결 시각으로 바꾸지 않습니다.')]
         for offset in range(0,len(detail_rows),80):
             children.append({'object':'block','type':'table','table':{
-                'table_width':len(SYMBOL_HEADERS),'has_column_header':True,'has_row_header':False,
+                'table_width':len(symbol_headers(provenance)),'has_column_header':True,'has_row_header':False,
                 'children':[{'object':'block','type':'table_row','table_row':{'cells':[rich(c) for c in row]}}
-                            for row in [SYMBOL_HEADERS]+detail_rows[offset:offset+80]]}})
+                            for row in [symbol_headers(provenance)]+detail_rows[offset:offset+80]]}})
         if provenance.get('unused_requested_symbols'):
             children.append(block('paragraph','조회했으나 분석 입력에 사용하지 않은 종목: '+
                                   ', '.join(provenance['unused_requested_symbols'])))
@@ -236,10 +268,28 @@ def verify_symbol_rows(api,page_id,provenance):
             found=plain(child['heading_2']['rich_text'])==SYMBOL_HEADING
         elif found and child['type']=='table':
             rows=[[plain(cell) for cell in b['table_row']['cells']] for b in children(child['id'])]
-            if not rows or rows[0]!=SYMBOL_HEADERS:raise ValueError('Symbol timestamp table header differs')
+            if not rows or rows[0]!=symbol_headers(provenance):raise ValueError('Symbol timestamp table header differs')
             actual+=rows[1:]
     if actual!=expected:raise ValueError('Notion symbol price/timestamp read-back differs from archived input')
     return len(actual)
+
+
+def verify_price_metrics(api,page_id,observation):
+    provenance=observation['price_provenance']
+    if not provenance.get('price_adjustment_version'):return {}
+    import math
+    properties=api.call('GET','/pages/'+page_id)['properties']
+    version=''.join(v.get('plain_text',v.get('text',{}).get('content',''))
+                    for v in properties['분할보정버전']['rich_text'])
+    if version!=provenance['price_adjustment_version']:raise ValueError('Notion split version read-back differs')
+    verified={}
+    for symbol,quote in provenance.get('core_etfs',{}).items():
+        for name,key in [(symbol+' 가격','price'),(symbol+' 20일 평균','ma20')]:
+            value=properties[name]['number']
+            if quote.get(key) is None or value is None or not math.isclose(value,quote[key],rel_tol=1e-12):
+                raise ValueError('Notion normalized price/MA20 read-back differs: '+symbol)
+        verified[symbol]={k:quote.get(k) for k in ('price','ma20','raw_price','price_basis')}
+    return verified
 
 
 class Notion:
@@ -331,7 +381,10 @@ def mirror(api, data_source_id, observation, archive_url):
         # cloud run queries the key again before creating, with serialized writers.
         page = api.call('POST', '/pages', make_page(observation, data_source_id, archive_url))
     verified=verify_symbol_rows(api,page['id'],observation['price_provenance'])
+    price_metrics=verify_price_metrics(api,page['id'],observation)
     return {'page_id': page['id'], 'page_url': page['url'], 'symbol_rows_verified':verified,
+            'price_metrics_verified':price_metrics,
+            'split_adjustment_version':observation['price_provenance'].get('price_adjustment_version'),
             'delivery_key': observation['delivery_key'], 'payload_sha256': observation['payload_sha256'],
             'observation_id': observation['observation_id'], 'data_class': observation['data_class']}
 

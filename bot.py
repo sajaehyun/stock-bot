@@ -243,9 +243,11 @@ def _yfinance_candles(ticker: str) -> pd.DataFrame | None:
         return None
     try:
         t = yf.Ticker(ticker)
-        raw = t.history(period="2y", interval="1d", auto_adjust=True)
+        raw = t.history(period="2y", interval="1d", auto_adjust=False)
         if raw is None or raw.empty:
             return None
+        from split_adjustment import normalize_daily
+        raw = normalize_daily(ticker,raw,yf)
 
         df = raw.copy()
         rename = {}

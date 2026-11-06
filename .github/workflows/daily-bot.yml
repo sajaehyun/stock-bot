@@ -43,7 +43,7 @@ jobs:
       - name: Verify scanner regression tests
         run: |
           python -m unittest discover -s tests -v
-          python -m unittest -q test_quote_metadata.py test_notion_archive.py
+          python -m unittest -q test_quote_metadata.py test_notion_archive.py test_split_storage.py
       - name: Run stock analysis
         run: python tracked_scanner.py daily
       - name: Archive confirmed per-symbol price observations

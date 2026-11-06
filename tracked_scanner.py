@@ -28,6 +28,9 @@ def run(kind):
             analyzed_at=datetime.now(timezone.utc).isoformat()
             snap=scanner_snapshot({'results':[]},quotes)
             message=escape(summary(provenance(snap,analyzed_at)))+'\n\n'+message
+            from split_adjustment import summary as adjustment_summary
+            adjustment_text=adjustment_summary(snap)
+            if adjustment_text:message=escape(adjustment_text)+'\n'+message
         confirmed=original_sender(message)
         if confirmed is not True:raise RuntimeError('Telegram send was not confirmed; observation not archived')
         messages.append(unescape(re.sub(r'</?b>','',message)))

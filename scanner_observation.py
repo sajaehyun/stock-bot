@@ -32,7 +32,9 @@ def candle_fact(frame, interval, source, collected_at=None):
             end=min(start+pd.Timedelta(minutes=30),cl)
             kind,session='bar_start','정규장'
     asof=end if kind=='official_session_close' else start
-    return {'price':price,'asof_utc':asof.isoformat() if asof else None,
+    from split_adjustment import metrics
+    return {'price':price, **(metrics(frame) if interval=='1d' else {}),
+            'asof_utc':asof.isoformat() if asof else None,
             'timestamp_kind':kind,'collected_at_utc':now.isoformat(),
             'bar_start_utc':start.isoformat() if start else None,
             'bar_end_utc':end.isoformat() if end else None,
