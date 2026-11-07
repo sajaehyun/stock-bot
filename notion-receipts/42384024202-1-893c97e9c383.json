@@ -1,0 +1,17 @@
+{
+  "page_id": "411f6d33-c8be-81eb-ac11-f0b6c5b25886",
+  "page_url": "https://app.notion.com/p/2026-11-07-23-58-411f6d33c8be81ebac11f0b6c5b25886",
+  "symbol_rows_verified": 28,
+  "price_metrics_verified": {},
+  "split_adjustment_version": null,
+  "research_eligibility_verified": {
+    "version": "uncertainty-screen-v2",
+    "eligible": true,
+    "status": "screened_no_flag",
+    "reason": "제한된 최신 뉴스·공식 재난 정보 점검에서 제외 사유 미검출"
+  },
+  "delivery_key": "sajaehyun/stock-bot:42384024202:1:장중스캔",
+  "payload_sha256": "1539334ae7e55685ef58d860c4af01fd66cdad0e9d634dee0f7b57045ccf0c48",
+  "observation_id": "42384024202-1-893c97e9c383",
+  "data_class": "fallback"
+}
