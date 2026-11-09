@@ -1,0 +1,17 @@
+{
+  "page_id": "413f6d33-c8be-81e7-a631-c24d8c708a99",
+  "page_url": "https://app.notion.com/p/2026-11-10-06-51-413f6d33c8be81e7a631c24d8c708a99",
+  "symbol_rows_verified": 30,
+  "price_metrics_verified": {},
+  "split_adjustment_version": "split-basis-v1",
+  "research_eligibility_verified": {
+    "version": "uncertainty-screen-v2",
+    "eligible": false,
+    "status": "uncertain",
+    "reason": "선거·재난·비상 사건 관련 근거 감지; 시장 영향 확정 전 보수적 제외"
+  },
+  "delivery_key": "sajaehyun/stock-bot:42706312006:1:종목추천",
+  "payload_sha256": "7ceee18cd5e7393899cbf6c4c893947e78e4c915b04ef52c5c785b90d9af5055",
+  "observation_id": "42706312006-1-1833baed5507",
+  "data_class": "fallback"
+}
