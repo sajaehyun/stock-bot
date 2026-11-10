@@ -1,71 +1,54 @@
 name: Hourly Stock Analysis
 on:
-  schedule:
-    - cron: '0 4 * * *'   # 오후 1시 KST
-    - cron: '0 5 * * *'   # 오후 2시 KST
-    - cron: '0 6 * * *'   # 오후 3시 KST
-    - cron: '0 7 * * *'   # 오후 4시 KST
-    - cron: '0 8 * * *'   # 오후 5시 KST
-    - cron: '0 9 * * *'   # 오후 6시 KST
-    - cron: '0 10 * * *'  # 오후 7시 KST
-    - cron: '0 11 * * *'  # 오후 8시 KST
-    - cron: '0 12 * * *'  # 오후 9시 KST
-    - cron: '0 13 * * *'  # 오후 10시 KST
-    - cron: '0 14 * * *'  # 오후 11시 KST
   workflow_dispatch:
-permissions:
-  contents: write
-
-concurrency:
-  group: ${{ github.workflow }}-${{ github.ref }}
-  cancel-in-progress: false
-
+permissions: {}
 jobs:
-  analyze:
+  verify:
     runs-on: ubuntu-latest
-    timeout-minutes: 25
+    timeout-minutes: 3
     env:
-      PYTHONUNBUFFERED: '1'
-      REQUIRE_TELEGRAM: '1'
-      TELEGRAM_TOKEN: ${{ secrets.TELEGRAM_TOKEN || secrets.TELEGRAM_BOT_TOKEN }}
-      CHAT_ID: ${{ secrets.CHAT_ID || secrets.TELEGRAM_CHAT_ID }}
-      FINNHUB_API_KEY: ${{ secrets.FINNHUB_API_KEY }}
+      BOT_TOKEN: ${{ secrets.TELEGRAM_TOKEN || secrets.TELEGRAM_BOT_TOKEN }}
+      TARGET_CHAT_ID: ${{ secrets.NEWCODE_TELEGRAM_CHAT_ID }}
     steps:
-      - uses: actions/checkout@v7
-        with:
-          persist-credentials: false
-      - uses: actions/setup-python@v7
-        with:
-          python-version: '3.12'
-          cache: pip
-      - name: Install dependencies
-        run: python -m pip install -r requirements.txt
-      - name: Verify scanner regression tests
+      - name: Verify private Telegram destination
         run: |
-          python -m unittest discover -s tests -v
-          python -m unittest -q test_quote_metadata.py test_notion_archive.py test_split_storage.py
-      - name: Run stock analysis
-        run: python tracked_scanner.py daily
-      - name: Archive confirmed per-symbol price observations
-        if: always()
-        uses: actions/github-script@v7
-        with:
-          script: |
-            const fs=require('node:fs');
-            if(fs.existsSync('delivered_observations')) {
-              for(const file of fs.readdirSync('delivered_observations').filter(f=>f.endsWith('.json'))) {
-                const observation=JSON.parse(fs.readFileSync('delivered_observations/'+file,'utf8'));
-                await require('./archive_observation.cjs').appendObservation({github,repo:context.repo,observation,core});
-              }
-            }
-      - name: Save analysis results
-        if: always()
-        uses: actions/upload-artifact@v4
-        with:
-          name: daily-bot-results
-          path: |
-            delivered_observations/*.json
-            actions_reports/*.json
-            intraday_reports/*.json
-          retention-days: 7
-          if-no-files-found: warn
+          python3 - <<'PY'
+          import json
+          import os
+          import re
+          from urllib.error import HTTPError, URLError
+          from urllib.request import Request, urlopen
+          
+          token = os.environ['BOT_TOKEN'].strip()
+          chat_id = os.environ['TARGET_CHAT_ID'].strip()
+          if not token or not re.fullmatch(r'-[0-9]+', chat_id):
+              raise SystemExit('Missing bot token or private group ID')
+          
+          def call(method, **params):
+              request = Request(f'https://api.telegram.org/bot{token}/{method}',
+                                data=json.dumps(params).encode(),
+                                headers={'Content-Type': 'application/json'})
+              try:
+                  with urlopen(request, timeout=15) as response:
+                      result = json.load(response)
+              except HTTPError as error:
+                  raise SystemExit(f'Telegram {method} failed (HTTP {error.code})') from None
+              except (URLError, ValueError, TimeoutError):
+                  raise SystemExit(f'Telegram {method} failed') from None
+              if not result.get('ok'):
+                  raise SystemExit(f'Telegram {method} was rejected')
+              return result['result']
+          
+          bot = call('getMe')
+          print(f"Bot username: @{bot['username']}")
+          chat = call('getChat', chat_id=int(chat_id))
+          if chat.get('title') != '반도체 알림 · 신규코드' or chat.get('type') not in ('group', 'supergroup') or chat.get('username'):
+              raise SystemExit('Unexpected destination or group visibility')
+          member = call('getChatMember', chat_id=int(chat_id), user_id=bot['id'])
+          status = member.get('status')
+          if status not in ('member', 'administrator', 'creator'):
+              raise SystemExit('Bot is not a member of the destination')
+          if status == 'member' and not chat.get('permissions', {}).get('can_send_messages'):
+              raise SystemExit('Bot cannot post to the destination')
+          print('Verified: 반도체 알림 · 신규코드')
+          PY
