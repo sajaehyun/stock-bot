@@ -158,8 +158,8 @@ def _escape_html(text: str) -> str:
 # Telegram
 # ═══════════════════════════════════════════════════════════════════
 
-def send_telegram_receipt(message: str, chat_id: str):
-    if not TELEGRAM_TOKEN or not chat_id:
+def send_telegram(message: str) -> bool:
+    if not TELEGRAM_TOKEN or not CHAT_ID:
         if os.getenv("REQUIRE_TELEGRAM") == "1":
             raise RuntimeError("Telegram configuration is missing: TELEGRAM_TOKEN and CHAT_ID")
         log.warning("Telegram configuration is missing; delivery skipped")
@@ -168,24 +168,17 @@ def send_telegram_receipt(message: str, chat_id: str):
     try:
         resp = requests.post(
             url,
-            json={"chat_id": chat_id, "text": message[:4000], "parse_mode": "HTML"},
+            json={"chat_id": CHAT_ID, "text": message[:4000], "parse_mode": "HTML"},
             timeout=20,
         )
-        if resp.status_code != 200:
-            raise RuntimeError(f"Telegram delivery failed (HTTP {resp.status_code})")
-        payload = resp.json()
-        if payload.get("ok") is not True:
+        if resp.status_code != 200 or not resp.json().get("ok"):
             raise RuntimeError(f"Telegram delivery failed (HTTP {resp.status_code})")
     except requests.RequestException:
         # Request exception strings can include the bot token in the URL.
         raise RuntimeError("Telegram request failed") from None
     log.info("Telegram delivery confirmed")
-    return payload.get('result', {})
+    return True
 
-
-
-def send_telegram(message: str) -> bool:
-    return send_telegram_receipt(message, CHAT_ID) is not False
 
 # ═══════════════════════════════════════════════════════════════════
 # Finnhub API 헬퍼

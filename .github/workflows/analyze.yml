@@ -21,7 +21,6 @@ jobs:
       REQUIRE_TELEGRAM: '1'
       TELEGRAM_TOKEN: ${{ secrets.TELEGRAM_TOKEN || secrets.TELEGRAM_BOT_TOKEN }}
       CHAT_ID: ${{ secrets.NEWCODE_TELEGRAM_CHAT_ID }}
-      SHIN_JIJA_TELEGRAM_CHAT_ID: ${{ github.event_name == 'schedule' && secrets.CHAT_ID || '' }}
       FINNHUB_API_KEY: ${{ secrets.FINNHUB_API_KEY }}
     steps:
       - uses: actions/checkout@v7

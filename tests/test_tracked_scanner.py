@@ -3,7 +3,7 @@ import os
 from pathlib import Path
 import tempfile
 import unittest
-from unittest.mock import Mock, patch
+from unittest.mock import patch
 import pandas as pd
 import bot
 import tracked_scanner
@@ -41,27 +41,6 @@ class ConfirmedScannerTests(unittest.TestCase):
              patch.object(bot,'send_telegram',side_effect=RuntimeError('delivery failed')):
             with self.assertRaises(RuntimeError):tracked_scanner.run('daily',{})
         self.assertFalse(Path('delivered_observations').exists())
-
-
-    def test_scheduled_momentum_uses_one_ranking_for_both_chats(self):
-        report = {'analyzed_at': '2026-11-13 13:00:00 (KST)', 'green': 30, 'wait': 0, 'stop': 0,
-                  'results': [{'ticker': f'T{i:02}', 'entry': '🟢', 'entry_key': 'green', 'score': 70,
-                               'price': 100.0} for i in reversed(range(30))]}
-
-        def scan(*args):
-            bot.send_telegram('Original top-ten message')
-            return report
-
-        receipt = Mock(side_effect=lambda text, chat: {'message_id': 10, 'chat': {'id': int(chat)}, 'text': text})
-        with patch.dict(os.environ, {'SHIN_JIJA_TELEGRAM_CHAT_ID': '10'}), \
-                patch.object(bot, 'CHAT_ID', '-20'), patch.object(bot, 'format_mode1', side_effect=scan) as run, \
-                patch.object(bot, 'send_telegram_receipt', receipt):
-            result = tracked_scanner.run('daily', {})
-        run.assert_called_once()
-        self.assertEqual([call.args[1] for call in receipt.call_args_list], ['10', '-20'])
-        self.assertEqual(receipt.call_args_list[0].args[0], receipt.call_args_list[1].args[0])
-        self.assertEqual(result['payload']['snapshot']['results'][0]['ticker'], 'T29')
-        self.assertIn('30. T00 🟢 점수:70', result['payload']['text'])
 
 
 if __name__=='__main__':unittest.main()
